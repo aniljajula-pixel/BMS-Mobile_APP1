@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "VJ MSEBBMS",
+    "slug": "BMSMOBILE",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/notransparent.png",
+    "scheme": "restate",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "googleMapsApiKey": "AIzaSyCOJU4OzLmqkerS9DT_Z3k4TiUHJmyKzOM",
+      "bundleIdentifier": "com.jajulaanil.BMSMOBILE.v2"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/transparent1.png",
+        "backgroundColor": "#ffffff",
+        "usesCleartextTraffic": true
+      },
+      "googleMaps": {
+        "apiKey": "com.google.android.geo.API_KEY"
+      },
+      "package": "com.jajulaanil.BMSMOBILE.v2",
+      "appName": "VJ MSEBBMS",
+      "usesCleartextTraffic": true,
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
+      "expo-asset",
+      "expo-font"
+    ],
+    "extra": {
+      "API_URL": "https://rbms.mahadiscom.in/mseb",
+      "eas": {
+        "projectId": "046e4090-5da7-46e9-be0d-d12d405bc639"
+      }
+    }
+  }
+}
