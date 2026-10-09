@@ -16,3 +16,4 @@ local.properties
 *.jsbundle
 # Android build files
 *app-release.apk
+*my-app.apks
