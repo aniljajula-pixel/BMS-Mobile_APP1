@@ -3,6 +3,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar, Alert, View, Text } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthProvider } from './AuthContext';
+import { SelectionProvider } from './SelectionContext';
 import AppNavigator from './src/navigation/AppNavigator';
 
 export default function App() {
@@ -26,7 +27,6 @@ export default function App() {
       },
     },
     async getInitialURL() {
-      console.log('App - Waiting for AuthContext to initialize');
       await new Promise((resolve) => setTimeout(resolve, 1000));
       return null;
     },
@@ -34,17 +34,13 @@ export default function App() {
 
   useEffect(() => {
     const initializeApp = async () => {
-      console.log('App - Initializing app');
-      // Removed notification channel setup
       await new Promise((resolve) => setTimeout(resolve, 1000));
       setIsReady(true);
-      console.log('App - App is ready');
     };
     initializeApp();
   }, []);
 
   if (!isReady) {
-    console.log('App - Not ready yet');
     return null;
   }
 
@@ -52,16 +48,20 @@ export default function App() {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <Text style={{ fontSize: 18, fontWeight: 'bold' }}>Access Expired</Text>
-        <Text style={{ marginTop: 10, color: 'gray' }}>This app’s access period has expired.</Text>
+        <Text style={{ marginTop: 10, color: 'gray' }}>
+          This app's access period has expired.
+        </Text>
       </View>
     );
   }
 
   return (
     <AuthProvider>
-      <NavigationContainer linking={linking}>
-        <AppNavigator />
-      </NavigationContainer>
+      <SelectionProvider>
+        <NavigationContainer linking={linking}>
+          <AppNavigator />
+        </NavigationContainer>
+      </SelectionProvider>
     </AuthProvider>
   );
 }

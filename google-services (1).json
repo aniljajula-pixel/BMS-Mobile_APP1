@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "272993495894",
+    "project_id": "bms-3fc7e",
+    "storage_bucket": "bms-3fc7e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:272993495894:android:63d5a07f660c1542af04f7",
+        "android_client_info": {
+          "package_name": "com.jajulaanil.BMSMOBILE.v2"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBqTC8mzwIpxZtRpRF0Q2kb_pRcMcgma9I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

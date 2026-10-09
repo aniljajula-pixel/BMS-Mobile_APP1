@@ -1,3 +1,4 @@
+// src/screens/LoginScreen.js
 import React, { useState, useContext } from 'react';
 import {
   View,
@@ -12,6 +13,7 @@ import {
 } from 'react-native';
 import api from '../Api';
 import { AuthContext } from '../../AuthContext';
+import LocationSetupDialog from '../components/LocationSetupDialog';
 
 export default function LoginScreen() {
   const [username, setUsername] = useState('');
@@ -19,10 +21,13 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+  // First-time location setup state
+  const [showLocationSetup, setShowLocationSetup] = useState(false);
+  const [pendingToken, setPendingToken] = useState(null);
+
   const { login } = useContext(AuthContext);
 
   const handleSignIn = async () => {
-    // Only trim leading and trailing spaces (spaces in middle are kept)
     const cleanedUsername = username.trim();
     const cleanedPassword = password.trim();
 
@@ -30,7 +35,6 @@ export default function LoginScreen() {
       Alert.alert('Error', 'Please enter username and password');
       return;
     }
-
     if (cleanedUsername.length < 3) {
       Alert.alert('Error', 'Username must be at least 3 characters');
       return;
@@ -46,20 +50,29 @@ export default function LoginScreen() {
         password: cleanedPassword,
       });
 
-      console.log('Login Response received');
+      console.log('Login Response:', response.data);
 
-      const token = response.data.jwt;
+      const token = response.data?.jwt;
+      const needsLocationSetup = response.data?.needsLocationSetup === true;
 
-      if (token && typeof token === 'string' && token.length > 0) {
-        // Just pass the token - AuthContext will decode it
-        await login(token, 'LoginScreen');
-        Alert.alert('Success', 'Login successful!');
-      } else {
-        Alert.alert('Error', 'Authentication failed: Invalid or missing token');
+      if (!token || typeof token !== 'string' || token.length === 0) {
+        Alert.alert('Username or password is incorrect');
+        return;
       }
+
+      if (needsLocationSetup) {
+        // First-time login → show location setup dialog, don't login yet
+        console.log('First-time login: showing location setup dialog');
+        setPendingToken(token);
+        setShowLocationSetup(true);
+        return;
+      }
+
+      // Normal login
+      await login(token, 'LoginScreen');
+      Alert.alert('Success', 'Login successful!');
     } catch (error) {
       console.error('Login Error:', error?.response?.data || error.message);
-
       if (error.response?.status === 401) {
         Alert.alert('Error', 'Invalid credentials');
       } else if (error.request) {
@@ -72,6 +85,22 @@ export default function LoginScreen() {
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Called by LocationSetupDialog after successful save
+  const handleLocationComplete = async (newJwt) => {
+    console.log('Location setup complete. Logging in with new token.');
+    setShowLocationSetup(false);
+    setPendingToken(null);
+
+    try {
+      await login(newJwt, 'LoginScreen-LocationSetup');
+      // Navigation to Home is handled by your AuthContext/AppNavigator
+      // when the auth state changes
+    } catch (e) {
+      console.error('Login after location setup failed', e);
+      Alert.alert('Error', 'Could not complete login. Please try again.');
     }
   };
 
@@ -149,114 +178,63 @@ export default function LoginScreen() {
           )}
         </TouchableOpacity>
       </View>
+
+      {/* Mandatory first-time location setup */}
+      <LocationSetupDialog
+        visible={showLocationSetup}
+        token={pendingToken}
+        onComplete={handleLocationComplete}
+      />
     </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  background: { flex: 1 }, 
+  background: { flex: 1 },
   versionText: {
-    position: 'absolute', 
-    bottom: 16,
-    alignSelf: 'center',
-    color: '#e0e0e0',
-    fontSize: 13,
-    fontWeight: '400',
+    position: 'absolute', bottom: 16, alignSelf: 'center',
+    color: '#e0e0e0', fontSize: 13, fontWeight: '400',
     backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    zIndex: 10,
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, zIndex: 10,
   },
   logoContainer: {
-    position: 'absolute',
-    top: 40,
-    left: 20,
-    right: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',   
-    zIndex: 1,
-    alignItems: 'center',
+    position: 'absolute', top: 40, left: 20, right: 20,
+    flexDirection: 'row', justifyContent: 'space-between',
+    zIndex: 1, alignItems: 'center',
   },
   logo: { width: 150, height: 50 },
   mahaLogo: { width: 180, height: 90 },
   container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    flex: 1, justifyContent: 'center', alignItems: 'center',
+    padding: 20, backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   watermark: {
-    position: 'absolute',
-    width: '80%',
-    height: '60%',
-    opacity: 0.3,
-    zIndex: 0,
-    top: '30%',
+    position: 'absolute', width: '80%', height: '60%',
+    opacity: 0.3, zIndex: 0, top: '30%',
   },
   footerText: {
-    fontSize: 20,
-    color: '#fff',
-    textAlign: 'center',
-    marginTop: 10,
-    marginBottom: 20,
-    zIndex: 1,
+    fontSize: 20, color: '#fff', textAlign: 'center',
+    marginTop: 10, marginBottom: 20, zIndex: 1,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 24,
-    zIndex: 1,
-  },
+  title: { fontSize: 28, fontWeight: 'bold', color: '#fff', marginBottom: 24, zIndex: 1 },
   input: {
-    width: '90%',
-    padding: 14,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 10,
+    width: '90%', padding: 14, marginBottom: 16,
+    borderWidth: 1, borderColor: '#ccc', borderRadius: 10,
     backgroundColor: 'rgba(30, 112, 112, 0.7)',
-    color: '#000',
-    fontSize: 16,
-    zIndex: 1,
+    color: '#000', fontSize: 16, zIndex: 1,
   },
   passwordContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '90%',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 10,
-    backgroundColor: 'rgba(30, 112, 112, 0.7)',
-    zIndex: 1,
+    flexDirection: 'row', alignItems: 'center', width: '90%',
+    marginBottom: 16, borderWidth: 1, borderColor: '#ccc',
+    borderRadius: 10, backgroundColor: 'rgba(30, 112, 112, 0.7)', zIndex: 1,
   },
-  passwordInput: {
-    flex: 1,
-    padding: 14,
-    color: '#000',
-    fontSize: 16,
-  },
-  eyeIcon: {
-    paddingHorizontal: 12,
-  },
+  passwordInput: { flex: 1, padding: 14, color: '#000', fontSize: 16 },
+  eyeIcon: { paddingHorizontal: 12 },
   button: {
-    width: '90%',
-    padding: 16,
-    borderRadius: 10,
+    width: '90%', padding: 16, borderRadius: 10,
     backgroundColor: 'rgba(0, 123, 255, 0.5)',
-    alignItems: 'center',
-    marginTop: 8,
-    zIndex: 1,
+    alignItems: 'center', marginTop: 8, zIndex: 1,
   },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
+  buttonDisabled: { opacity: 0.6 },
+  buttonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
 });

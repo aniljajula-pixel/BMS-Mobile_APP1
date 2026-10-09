@@ -1,5 +1,12 @@
 // src/screens/CellsScreen.js
-import React, { useState, useEffect, useContext, createContext } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useContext,
+  createContext,
+  useRef,
+  useCallback,
+} from 'react';
 import {
   View,
   Text,
@@ -11,10 +18,10 @@ import {
   Image,
   RefreshControl,
 } from 'react-native';
-import RNPickerSelect from 'react-native-picker-select';
 import Icon from 'react-native-vector-icons/FontAwesome';
 import axios from 'axios';
 import { AuthContext } from '../../AuthContext';
+import { useSelection } from '../../SelectionContext';
 import {
   CommunicationFailed,
   BatteryLowVoltage,
@@ -27,15 +34,9 @@ import {
 } from './BatteryIcons';
 
 const API_URL = 'https://rbms.mahadiscom.in/mseb';
-  
-/* --------------------------------------------------------------
-   AppContext – used only inside CellLayout
-   -------------------------------------------------------------- */
+
 const AppContext = createContext();
 
-/* --------------------------------------------------------------
-   Status config (SVG + colour + GIF placeholder)
-   -------------------------------------------------------------- */
 const statusConfig = {
   Charging: { svg: Charging, color: '#4CAF50', gif: 'https://via.placeholder.com/100x20.gif?text=Charging' },
   Discharging: { svg: Discharging, color: '#FF5252', gif: 'https://via.placeholder.com/100x20.gif?text=Discharging' },
@@ -47,50 +48,23 @@ const statusConfig = {
   'Communication Fail': { svg: CommunicationFailed, color: '#455A64', gif: 'https://via.placeholder.com/100x20.gif?text=Communication+Fail' },
 };
 
-/* --------------------------------------------------------------
-   MOCK DATA (offline mode)
-   -------------------------------------------------------------- */
-const MOCK_STATES = ['MAHARASHTRA'];
 const MOCK_ZONES = ['Bhandup', 'Kalyan', 'Nashik'];
 const MOCK_CIRCLES = ['Thane', 'Pune'];
 const MOCK_DIVISIONS = [
-  'BHANDUP (E)',
-  'GADKARI',
-  'ISHWAR NAGAR', 
-  'KISAN NAGAR',
-  'KOLSHETH URBAN',
-  'LOKMANYA NAGAR',
-  'NEELAM NAGAR',
-  'PACH RASTA',
-  'PANNALAL',
-  'POWER HOUSE',
-  'SARVODAY',
-  'THANE (E)',
-  'VIKAS COMPLEX',
-  'WAGLE ESTATE'
+  'BHANDUP (E)', 'GADKARI', 'ISHWAR NAGAR', 'KISAN NAGAR',
+  'KOLSHETH URBAN', 'LOKMANYA NAGAR', 'NEELAM NAGAR', 'PACH RASTA',
+  'PANNALAL', 'POWER HOUSE', 'SARVODAY', 'THANE (E)',
+  'VIKAS COMPLEX', 'WAGLE ESTATE',
 ];
 const MOCK_AREAS = [
-  'POWER HOUSE',
-  'AMFORGE',
-  'DREAMS', 
-  'HARIYALI',
-  'HAWARE',
-  'HIRANANDANI',
-  'KOLSHET',
-  'KOPRI',
-  'LOKMANYA NAGAR',
-  'LOKPRIYA',
-  'PIRMAL',
-  'ROMA',
-  'SELF DEVELOPER',
-  'SOHAM',
-  'VASANTH VIHAR'
+  'POWER HOUSE', 'AMFORGE', 'DREAMS', 'HARIYALI', 'HAWARE',
+  'HIRANANDANI', 'KOLSHET', 'KOPRI', 'LOKMANYA NAGAR', 'LOKPRIYA',
+  'PIRMAL', 'ROMA', 'SELF DEVELOPER', 'SOHAM', 'VASANTH VIHAR',
 ];
 const MOCK_CELLS = [
   { siteId: 'SITE1', serialNumber: 'SN001', cellNumber: 1, cellVoltage: 3.7, cellTemperature: 25, cellSpecificgravity: 1.265 },
   { siteId: 'SITE1', serialNumber: 'SN001', cellNumber: 2, cellVoltage: 3.2, cellTemperature: 30, cellSpecificgravity: 1.260 },
   { siteId: 'SITE1', serialNumber: 'SN001', cellNumber: 3, cellVoltage: 4.3, cellTemperature: 45, cellSpecificgravity: null },
-  { siteId: 'SITE2', serialNumber: 'SN002', cellNumber: 1, cellVoltage: 2.151, cellTemperature: 11032, cellSpecificgravity: 8.9201 },
 ];
 const MOCK_BMS = {
   bmsAlarmsDTO: {
@@ -107,32 +81,7 @@ const MOCK_BMS = {
   },
 };
 
-/* --------------------------------------------------------------
-   JWT helpers
-   -------------------------------------------------------------- */
-export const decodeJWT = (token) => {
-  try {
-    const base64Url = token.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(
-      atob(base64)
-        .split('')
-        .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-        .join('')
-    );
-    return JSON.parse(jsonPayload);
-  } catch {
-    return null;
-  }
-};
-export const getUsername = (token) => {
-  const decoded = decodeJWT(token);
-  return decoded ? decoded.sub || null : null;
-};
-
-/* --------------------------------------------------------------
-   Cell layout component
-   -------------------------------------------------------------- */
+/* ---------------- Cell layout (unchanged) ---------------- */
 const CellLayout = ({ cellData, thresholds }) => {
   const { data } = useContext(AppContext);
   const { bmsAlarmsDTO } = data[0];
@@ -160,47 +109,33 @@ const CellLayout = ({ cellData, thresholds }) => {
         <Text style={styles.cellLabel}>C {cellData.cellNumber}</Text>
         <View style={[styles.terminal, { backgroundColor: 'rgb(183,28,28)' }]} />
       </View>
-
       <View style={styles.cellBody}>
         <View style={styles.statusIcon}>
           <StatusSVG width={18} height={18} />
         </View>
-
         <View style={styles.cellInfo}>
           {v === 65.535 || t === 65535 ? (
             <>
               <View style={styles.infoRow}><Text style={styles.icon}>v</Text><Text style={styles.infoText}>N/A</Text></View>
               <View style={styles.infoRow}><Icon name="thermometer-half" size={7} color="#fff" style={styles.icon} /><Text style={styles.infoText}>N/A</Text></View>
-              <View style={styles.infoRow}><Text style={styles.infoText}>sg:</Text><Text style={styles.infoText}>N/A</Text></View>
+              {/* <View style={styles.infoRow}><Text style={styles.infoText}>sg:</Text><Text style={styles.infoText}>N/A</Text></View> */}
             </>
           ) : (
             <>
               <View style={styles.infoRow}>
-                <Icon
-                  name="bolt"
-                  size={7}
-                  color="#fff"
-                  style={styles.icon}
-                />
+                <Icon name="bolt" size={7} color="#fff" style={styles.icon} />
                 <Text style={styles.infoText}>{v} V</Text>
               </View>
-
               <View style={styles.infoRow}>
-                <Icon
-                  name="thermometer-half"
-                  size={7}
-                  color="#fff"
-                  style={styles.icon} 
-                />
+                <Icon name="thermometer-half" size={7} color="#fff" style={styles.icon} />
                 <Text style={styles.infoText}>{t ?? 'N/A'} °C</Text>
               </View>
-              
-              <View style={styles.infoRow}>
+              {/* <View style={styles.infoRow}>
                 <Text style={styles.infoText}>sg:</Text>
                 <Text style={styles.infoText}>
                   {cellData.cellSpecificgravity != null ? Number(cellData.cellSpecificgravity).toFixed(5) : 'N/A'}
                 </Text>
-              </View>
+              </View> */}
             </>
           )}
         </View>
@@ -209,11 +144,20 @@ const CellLayout = ({ cellData, thresholds }) => {
   );
 };
 
-/* --------------------------------------------------------------
+/* =========================================================
    MAIN SCREEN
-   -------------------------------------------------------------- */
+   ========================================================= */
 const CellsScreen = () => {
   const { userToken, isOfflineMode } = useContext(AuthContext);
+
+  // 🔹 shared selection from header
+  const {
+    selectedState,
+    selectedZone,
+    selectedCircle,
+    selectedDivision,
+    selectedArea,
+  } = useSelection();
 
   /* ---------- UI state ---------- */
   const [loading, setLoading] = useState(false);
@@ -221,17 +165,12 @@ const CellsScreen = () => {
   const [hasSearched, setHasSearched] = useState(false);
   const [authError, setAuthError] = useState(false);
 
-  /* ---------- Picker data ---------- */
-  const [states, setStates] = useState([]);
-  const [selectedState, setSelectedState] = useState(null);
-  const [zones, setZones] = useState([]);
-  const [selectedZone, setSelectedZone] = useState(null);
-  const [circles, setCircles] = useState([]);
-  const [selectedCircle, setSelectedCircle] = useState(null);
-  const [divisions, setDivisions] = useState([]);
-  const [selectedDivision, setSelectedDivision] = useState(null);
-  const [areas, setAreas] = useState([]);
-  const [selectedArea, setSelectedArea] = useState(null);
+  /* ---------- User-scoped lists ---------- */
+  const [userZones, setUserZones] = useState([]);
+  const [userCircles, setUserCircles] = useState([]);
+  const [userDivisions, setUserDivisions] = useState([]);
+  const [userAreas, setUserAreas] = useState([]);
+  const [listsLoading, setListsLoading] = useState(false);
 
   /* ---------- Result data ---------- */
   const [siteInfo, setSiteInfo] = useState(null);
@@ -246,279 +185,159 @@ const CellsScreen = () => {
   const [statusGif, setStatusGif] = useState('https://via.placeholder.com/100x20.gif?text=Status+Legend');
   const [appContextValue, setAppContextValue] = useState({ data: [{ bmsAlarmsDTO: MOCK_BMS.bmsAlarmsDTO }] });
 
+  const lastFetchedArea = useRef('');
+
   /* --------------------------------------------------------------
-     Auto‑refresh (60 s) – only after a successful search
+     Auto-refresh (60s) after successful search
      -------------------------------------------------------------- */
   useEffect(() => {
     if (!hasSearched || !siteInfo || authError) return;
-    const id = setInterval(() => fetchCellData(siteInfo.siteId, siteInfo.serialNumber), 60_000);
+    const id = setInterval(
+      () => fetchCellData(siteInfo.siteId, siteInfo.serialNumber),
+      60_000
+    );
     return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasSearched, siteInfo, authError]);
 
   /* --------------------------------------------------------------
-     Initial load – states
+     USER-SCOPED fetchers
      -------------------------------------------------------------- */
-  useEffect(() => {
-    fetchStates();
-  }, [isOfflineMode]);
+  const fetchUserZones = useCallback(
+    async (state) => {
+      if (!state) return [];
+      if (isOfflineMode) return MOCK_ZONES;
+      if (!userToken) return [];
+      try {
+        const res = await axios.get(
+          `${API_URL}/getUserZones?stateName=${encodeURIComponent(state)}`,
+          { headers: { Authorization: `Bearer ${userToken}` }, timeout: 10000 }
+        );
+        const data = Array.isArray(res.data) ? res.data : [];
+        return [...new Set(data)];
+      } catch (e) {
+        if (e.response?.status === 401 || e.response?.status === 403) {
+          setAuthError(true);
+          return MOCK_ZONES;
+        }
+        return MOCK_ZONES;
+      }
+    },
+    [userToken, isOfflineMode]
+  );
+
+  const fetchUserCircles = useCallback(
+    async (zone) => {
+      if (!zone) return [];
+      if (isOfflineMode) return MOCK_CIRCLES;
+      if (!userToken) return [];
+      try {
+        const res = await axios.get(
+          `${API_URL}/getUserCircles?zoneName=${encodeURIComponent(zone)}`,
+          { headers: { Authorization: `Bearer ${userToken}` }, timeout: 10000 }
+        );
+        const data = Array.isArray(res.data) ? res.data : [];
+        return [...new Set(data)];
+      } catch (e) {
+        if (e.response?.status === 401 || e.response?.status === 403) {
+          setAuthError(true);
+          return MOCK_CIRCLES;
+        }
+        return MOCK_CIRCLES;
+      }
+    },
+    [userToken, isOfflineMode]
+  );
+
+  const fetchUserDivisions = useCallback(
+    async (circle) => {
+      if (!circle) return [];
+      if (isOfflineMode) return MOCK_DIVISIONS;
+      if (!userToken) return [];
+      try {
+        const res = await axios.get(
+          `${API_URL}/getUserDivisions?circleName=${encodeURIComponent(circle)}`,
+          { headers: { Authorization: `Bearer ${userToken}` }, timeout: 10000 }
+        );
+        const data = Array.isArray(res.data) ? res.data : [];
+        return [...new Set(data)];
+      } catch (e) {
+        if (e.response?.status === 401 || e.response?.status === 403) {
+          setAuthError(true);
+          return MOCK_DIVISIONS;
+        }
+        return MOCK_DIVISIONS;
+      }
+    },
+    [userToken, isOfflineMode]
+  );
+
+  const fetchUserAreas = useCallback(
+    async (division) => {
+      if (!division) return [];
+      if (isOfflineMode) return MOCK_AREAS;
+      if (!userToken) return [];
+      try {
+        const res = await axios.get(
+          `${API_URL}/getUserAreas?divisionName=${encodeURIComponent(division)}`,
+          { headers: { Authorization: `Bearer ${userToken}` }, timeout: 10000 }
+        );
+        const data = Array.isArray(res.data) ? res.data : [];
+        return [...new Set(data)];
+      } catch (e) {
+        if (e.response?.status === 401 || e.response?.status === 403) {
+          setAuthError(true);
+          return MOCK_AREAS;
+        }
+        return MOCK_AREAS;
+      }
+    },
+    [userToken, isOfflineMode]
+  );
 
   /* --------------------------------------------------------------
-     API helpers
+     Load user lists when selection changes
      -------------------------------------------------------------- */
-  const fetchStates = async () => {
-    if (isOfflineMode) {
-      setStates(MOCK_STATES);
-      return;
-    }
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setListsLoading(true);
+      try {
+        const z = await fetchUserZones(selectedState);
+        if (cancelled) return;
+        setUserZones(z);
 
-    // Don't try to fetch if no token
-    if (!userToken) {
-      console.log('No user token available for fetching states');
-      setStates(MOCK_STATES); // Use mock data as fallback
-      return;
-    }
+        const c = await fetchUserCircles(selectedZone);
+        if (cancelled) return;
+        setUserCircles(c);
 
-    setLoading(true);
-    try {
-      const res = await axios.get(`${API_URL}/api/states`, {
-        headers: { Authorization: `Bearer ${userToken}` },
-        timeout: 10000, // 10 second timeout
-      });
-      const valid = (res.data ?? [])
-        .map(s => s.name)
-        .filter(n => n && n.trim() && n !== 'MAHARASHTRA Pune');
-      setStates(valid);
-      setAuthError(false);
-    } catch (e) {
-      console.error('Error fetching states:', e);
-      // Don't show alert for auth errors, just use mock data
-      if (e.response?.status === 401) {
-        console.log('Authentication failed, using mock data');
-        setStates(MOCK_STATES);
-        setAuthError(true);
-      } else {
-        Alert.alert('Error', 'Failed to fetch states. Please check your connection.');
-        setStates(MOCK_STATES); // Use mock data as fallback
+        const d = await fetchUserDivisions(selectedCircle);
+        if (cancelled) return;
+        setUserDivisions(d);
+
+        const a = await fetchUserAreas(selectedDivision);
+        if (cancelled) return;
+        setUserAreas(a);
+      } finally {
+        if (!cancelled) setListsLoading(false);
       }
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [
+    selectedState,
+    selectedZone,
+    selectedCircle,
+    selectedDivision,
+    fetchUserZones,
+    fetchUserCircles,
+    fetchUserDivisions,
+    fetchUserAreas,
+  ]);
 
-  const fetchZonesForState = async (state) => {
-    if (isOfflineMode) {
-      setZones(MOCK_ZONES);
-      return;
-    }
-
-    if (!userToken) {
-      setZones(MOCK_ZONES);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const res = await axios.get(
-        `${API_URL}/getUserZones?stateName=${encodeURIComponent(state)}`,
-        { 
-          headers: { Authorization: `Bearer ${userToken}` },
-          timeout: 10000
-        }
-      );
-      const zoneData = Array.isArray(res.data) ? res.data : [];
-      const uniqueZones = [...new Set(zoneData)];
-      setZones(uniqueZones);
-    } catch (e) {
-      console.error('Error fetching zones:', e);
-      if (e.response?.status === 401) {
-        setZones(MOCK_ZONES);
-      } else {
-        Alert.alert('Error', 'Failed to load zones. Please check your connection.');
-        setZones(MOCK_ZONES);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchCirclesForZone = async (zone) => {
-    if (isOfflineMode) {
-      setCircles(MOCK_CIRCLES);
-      return;
-    }
-
-    if (!userToken) {
-      setCircles(MOCK_CIRCLES);
-      return;
-    }
-
-    try {
-      const response = await axios.get(
-        `${API_URL}/getUserCircles?zoneName=${encodeURIComponent(zone)}`,
-        { 
-          headers: { Authorization: `Bearer ${userToken}` },
-          timeout: 10000
-        }
-      );
-      const data = Array.isArray(response.data) ? response.data : [];
-      const uniqueCircles = [...new Set(data)];
-      setCircles(uniqueCircles);
-    } catch (e) {
-      console.error('Error fetching circles:', e);
-      if (e.response?.status === 401) {
-        setCircles(MOCK_CIRCLES);
-      } else {
-        Alert.alert('Error', 'Failed to load circles. Please check your connection.');
-        setCircles(MOCK_CIRCLES);
-      }
-    }
-  };
-
-  const fetchDivisionsForCircle = async (circle) => {
-    if (isOfflineMode) {
-      setDivisions(MOCK_DIVISIONS);
-      return;
-    }
-
-    if (!userToken) {
-      setDivisions(MOCK_DIVISIONS);
-      return;
-    }
-
-    try {
-      const response = await axios.get(
-        `${API_URL}/getUserDivisions?circleName=${encodeURIComponent(circle)}`,
-        { 
-          headers: { Authorization: `Bearer ${userToken}` },
-          timeout: 10000
-        }
-      );
-      const data = Array.isArray(response.data) ? response.data : [];
-      const uniqueDivisions = [...new Set(data)];
-      setDivisions(uniqueDivisions);
-    } catch (e) {
-      console.error('Error fetching divisions:', e);
-      if (e.response?.status === 401) {
-        setDivisions(MOCK_DIVISIONS);
-      } else {
-        Alert.alert('Error', 'Failed to load divisions. Please check your connection.');
-        setDivisions(MOCK_DIVISIONS);
-      }
-    }
-  };
-
-  const fetchAreasForDivision = async (division) => {
-    if (isOfflineMode) {
-      setAreas(MOCK_AREAS);
-      return;
-    }
-
-    if (!userToken) {
-      setAreas(MOCK_AREAS);
-      return;
-    }
-
-    try {
-      const response = await axios.get(
-        `${API_URL}/getUserAreas?divisionName=${encodeURIComponent(division)}`,
-        { 
-          headers: { Authorization: `Bearer ${userToken}` },
-          timeout: 10000
-        }
-      );
-      const data = Array.isArray(response.data) ? response.data : [];
-      const uniqueAreas = [...new Set(data)];
-      setAreas(uniqueAreas);
-    } catch (e) {
-      console.error('Error fetching areas:', e);
-      if (e.response?.status === 401) {
-        setAreas(MOCK_AREAS);
-      } else {
-        Alert.alert('Error', 'Failed to load areas. Please check your connection.');
-        setAreas(MOCK_AREAS);
-      }
-    }
-  };
-
-  const fetchCellData = async (siteId, serial) => {
-    if (isOfflineMode || authError || !userToken) {
-      const filtered = MOCK_CELLS.filter(c => c.siteId === siteId && c.serialNumber === serial);
-      setCells(filtered);
-      setSiteInfo({ siteId, serialNumber: serial, area: selectedArea });
-      setThresholds({
-        lowVoltage: 1.9, batteryAboutToDie: 1.8, openBattery: 1.7,
-        highVoltage: 2.4, highTemperature: 45,
-      });
-      setAppContextValue({ data: [{ bmsAlarmsDTO: MOCK_BMS.bmsAlarmsDTO }] });
-      const dom = dominantStatus(filtered.map(c => statusForCell(c, thresholds, MOCK_BMS.bmsAlarmsDTO)));
-      setStatusGif(statusConfig[dom]?.gif ?? statusConfig.Charging.gif);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      // 1. General data (cells + BMS)
-      const genRes = await axios.get(
-        `https://rbms.mahadiscom.in/mseb/getGeneralDataBySiteIdAndSerialNumber?area=${encodeURIComponent(selectedArea)}`,
-        { 
-          headers: { Authorization: `Bearer ${userToken}` },
-          timeout: 15000
-        }
-      );
-      const gen = genRes.data?.deviceDataDTO?.[0];
-      if (!gen?.cellVoltageTemperatureData) throw new Error('No cell data');
-
-      const parsedCells = gen.cellVoltageTemperatureData.map(c => ({
-        siteId,
-        serialNumber: serial,
-        cellNumber: c.cellNumber,
-        cellVoltage: c.cellVoltage ?? 0,
-        cellTemperature: c.cellTemperature > 1000 ? null : (c.cellTemperature ?? 0),
-        cellSpecificgravity: c.cellSpecificgravity ?? null,
-      }));
-      setCells(parsedCells);
-      setSiteInfo({ siteId, serialNumber: serial, area: selectedArea });
-      setAppContextValue({ data: [{ bmsAlarmsDTO: gen.bmsAlarmsDTO }] });
-
-      // 2. Thresholds
-      const thrRes = await axios.get(
-        `https://rbms.mahadiscom.in/mseb/getManufacturerDetailsBySiteIdAndSerialNumber?area=${encodeURIComponent(selectedArea)}`,
-        { 
-          headers: { Authorization: `Bearer ${userToken}` },
-          timeout: 10000
-        }
-      );
-      const t = thrRes.data;
-      setThresholds({
-        lowVoltage: parseFloat(t.lowVoltage) || 1.9,
-        batteryAboutToDie: parseFloat(t.batteryAboutToDie) || 1.8,
-        openBattery: parseFloat(t.openBattery) || 1.7,
-        highVoltage: parseFloat(t.highVoltage) || 2.4,
-        highTemperature: parseFloat(t.highTemperature) || 45,
-      });
-
-      // 3. Dominant status GIF
-      const dom = dominantStatus(parsedCells.map(c => statusForCell(c, thresholds, gen.bmsAlarmsDTO)));
-      setStatusGif(statusConfig[dom]?.gif ?? statusConfig.Charging.gif);
-      setAuthError(false);
-    } catch (e) {
-      console.error('Error fetching cell data:', e);
-      if (e.response?.status === 401) {
-        // Use mock data on auth error
-        const filtered = MOCK_CELLS.filter(c => c.siteId === siteId && c.serialNumber === serial);
-        setCells(filtered);
-        setSiteInfo({ siteId, serialNumber: serial, area: selectedArea });
-        setAuthError(true);
-        Alert.alert('Notice', 'Using demo data due to authentication issue. Please check your login status.');
-      } else {
-        Alert.alert('Error', `Failed to load cell data: ${e.message}`);
-        setCells([]);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  /* --------------------------------------------------------------
+     Cell status helpers
+     -------------------------------------------------------------- */
   const statusForCell = (cell, thr, bms) => {
     const v = cell.cellVoltage ?? 0;
     const t = cell.cellTemperature ?? 0;
@@ -538,152 +357,253 @@ const CellsScreen = () => {
   };
 
   /* --------------------------------------------------------------
-     Picker handlers
+     Fetch cell data for a given area
      -------------------------------------------------------------- */
-  const onStateChange = (value) => {
-    setSelectedState(value);
-    setSelectedZone(null);
-    setSelectedCircle(null);
-    setSelectedDivision(null);
-    setSelectedArea(null);
-    setZones([]);
-    setCircles([]);
-    setDivisions([]);
-    setAreas([]);
-    resetResult();
-    if (value) fetchZonesForState(value);
-  };
+  const fetchCellData = useCallback(
+    async (siteId, serial) => {
+      if (isOfflineMode || authError || !userToken) {
+        const filtered = MOCK_CELLS.filter((c) => c.siteId === siteId && c.serialNumber === serial);
+        setCells(filtered);
+        setSiteInfo({ siteId, serialNumber: serial, area: selectedArea });
+        const thr = {
+          lowVoltage: 1.9, batteryAboutToDie: 1.8, openBattery: 1.7,
+          highVoltage: 2.4, highTemperature: 45,
+        };
+        setThresholds(thr);
+        setAppContextValue({ data: [{ bmsAlarmsDTO: MOCK_BMS.bmsAlarmsDTO }] });
+        const dom = dominantStatus(filtered.map((c) => statusForCell(c, thr, MOCK_BMS.bmsAlarmsDTO)));
+        setStatusGif(statusConfig[dom]?.gif ?? statusConfig.Charging.gif);
+        return;
+      }
 
-  const onZoneChange = (value) => {
-    setSelectedZone(value);
-    setSelectedCircle(null);
-    setSelectedDivision(null);
-    setSelectedArea(null);
-    setCircles([]);
-    setDivisions([]);
-    setAreas([]);
-    resetResult();
-    if (value) fetchCirclesForZone(value);
-  };
+      setLoading(true);
+      try {
+        const genRes = await axios.get(
+          `${API_URL}/getGeneralDataBySiteIdAndSerialNumber?area=${encodeURIComponent(selectedArea)}`,
+          { headers: { Authorization: `Bearer ${userToken}` }, timeout: 15000 }
+        );
+        const gen = genRes.data?.deviceDataDTO?.[0];
+        if (!gen?.cellVoltageTemperatureData) throw new Error('No cell data');
 
-  const onCircleChange = (value) => {
-    setSelectedCircle(value);
-    setSelectedDivision(null);
-    setSelectedArea(null);
-    setDivisions([]);
-    setAreas([]);
-    resetResult();
-    if (value) fetchDivisionsForCircle(value);
-  };
+        const parsedCells = gen.cellVoltageTemperatureData.map((c) => ({
+          siteId,
+          serialNumber: serial,
+          cellNumber: c.cellNumber,
+          cellVoltage: c.cellVoltage ?? 0,
+          cellTemperature: c.cellTemperature > 1000 ? null : (c.cellTemperature ?? 0),
+          cellSpecificgravity: c.cellSpecificgravity ?? null,
+        }));
+        setCells(parsedCells);
+        setSiteInfo({ siteId, serialNumber: serial, area: selectedArea });
+        setAppContextValue({ data: [{ bmsAlarmsDTO: gen.bmsAlarmsDTO }] });
 
-  const onDivisionChange = (value) => {
-    setSelectedDivision(value);
-    setSelectedArea(null);
-    setAreas([]);
-    resetResult();
-    if (value) fetchAreasForDivision(value);
-  };
+        const thrRes = await axios.get(
+          `${API_URL}/getManufacturerDetailsBySiteIdAndSerialNumber?area=${encodeURIComponent(selectedArea)}`,
+          { headers: { Authorization: `Bearer ${userToken}` }, timeout: 10000 }
+        );
+        const t = thrRes.data;
+        const thr = {
+          lowVoltage: parseFloat(t.lowVoltage) || 1.9,
+          batteryAboutToDie: parseFloat(t.batteryAboutToDie) || 1.8,
+          openBattery: parseFloat(t.openBattery) || 1.7,
+          highVoltage: parseFloat(t.highVoltage) || 2.4,
+          highTemperature: parseFloat(t.highTemperature) || 45,
+        };
+        setThresholds(thr);
 
-  const onAreaChange = (value) => {
-    setSelectedArea(value);
-    resetResult();
-  };
-
-  const resetResult = () => {
-    setSiteInfo(null);
-    setCells([]);
-    setHasSearched(false);
-    setStatusGif('https://via.placeholder.com/100x20.gif?text=Status+Legend');
-  };
+        const dom = dominantStatus(parsedCells.map((c) => statusForCell(c, thr, gen.bmsAlarmsDTO)));
+        setStatusGif(statusConfig[dom]?.gif ?? statusConfig.Charging.gif);
+        setAuthError(false);
+      } catch (e) {
+        console.error('Error fetching cell data:', e);
+        if (e.response?.status === 401) {
+          const filtered = MOCK_CELLS.filter((c) => c.siteId === siteId && c.serialNumber === serial);
+          setCells(filtered);
+          setSiteInfo({ siteId, serialNumber: serial, area: selectedArea });
+          setAuthError(true);
+        } else {
+          Alert.alert('Error', `Failed to load cell data: ${e.message}`);
+          setCells([]);
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [userToken, isOfflineMode, authError, selectedArea]
+  );
 
   /* --------------------------------------------------------------
-     Search & Refresh
+     Search for the site ID for the area, then fetch cells
      -------------------------------------------------------------- */
-  const performSearch = async () => {
-    if (!selectedState || !selectedZone || !selectedCircle || !selectedDivision || !selectedArea) {
-      Alert.alert('Selection Required', 'Please select State, Zone, Circle, Division and Area.');
+  const searchByArea = useCallback(
+    async (area) => {
+      setLoading(true);
+      setHasSearched(true);
+      try {
+        const res = await axios.get(
+          `${API_URL}/getGeneralDataBySiteIdAndSerialNumber?area=${encodeURIComponent(area)}`,
+          { headers: { Authorization: `Bearer ${userToken}` }, timeout: 15000 }
+        );
+        const list = Array.isArray(res.data) ? res.data : [res.data];
+        if (!list.length) throw new Error('No site found for this area');
+
+        const first = list[0];
+        const siteId = first.siteId;
+        const serial = first.deviceDataDTO?.[0]?.serialNumber;
+        if (!siteId || !serial) throw new Error('Missing site/serial');
+
+        await fetchCellData(siteId, serial);
+      } catch (e) {
+        console.error('Error during search:', e);
+        if (e.response?.status !== 401) {
+          Alert.alert('Error', `Failed to search: ${e.message}`);
+        }
+        setHasSearched(false);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [userToken, fetchCellData]
+  );
+
+  /* --------------------------------------------------------------
+     Auto-fetch when selectedArea is present in user's list
+     -------------------------------------------------------------- */
+  useEffect(() => {
+    if (!selectedArea) {
+      setSiteInfo(null);
+      setCells([]);
+      setHasSearched(false);
+      setStatusGif('https://via.placeholder.com/100x20.gif?text=Status+Legend');
+      lastFetchedArea.current = '';
       return;
     }
-
-    setLoading(true);
-    setHasSearched(true);
-
-    try {
-      // Step 1: Get site/serial for the selected area
-      const res = await axios.get(
-        `https://rbms.mahadiscom.in/mseb/getGeneralDataBySiteIdAndSerialNumber?area=${encodeURIComponent(selectedArea)}`,
-        { 
-          headers: { Authorization: `Bearer ${userToken}` },
-          timeout: 15000
-        }
-      );
-
-      const list = Array.isArray(res.data) ? res.data : [res.data];
-      if (!list.length) throw new Error('No site found for this area');
-
-      const first = list[0];
-      const siteId = first.siteId;
-      const serial = first.deviceDataDTO?.[0]?.serialNumber;
-      if (!siteId || !serial) throw new Error('Missing site/serial');
-
-      await fetchCellData(siteId, serial);
-    } catch (e) {
-      console.error('Error during search:', e);
-      if (e.response?.status !== 401) {
-        Alert.alert('Error', `Failed to search: ${e.message}`);
-      }
+    if (userAreas.length === 0) return;
+    if (!userAreas.includes(selectedArea)) {
+      setSiteInfo(null);
+      setCells([]);
       setHasSearched(false);
-    } finally {
-      setLoading(false);
+      return;
     }
-  };
+    if (lastFetchedArea.current === selectedArea) return;
+    lastFetchedArea.current = selectedArea;
+    searchByArea(selectedArea);
+  }, [selectedArea, userAreas, searchByArea]);
 
+  /* --------------------------------------------------------------
+     Refresh
+     -------------------------------------------------------------- */
   const onRefresh = async () => {
     setRefreshing(true);
-    if (hasSearched && siteInfo) {
-      await fetchCellData(siteInfo.siteId, siteInfo.serialNumber);
-    } else {
-      await fetchStates();
+    try {
+      if (selectedArea && userAreas.includes(selectedArea)) {
+        lastFetchedArea.current = '';
+        await searchByArea(selectedArea);
+      }
+    } finally {
+      setRefreshing(false);
     }
-    setRefreshing(false);
   };
 
   /* --------------------------------------------------------------
-     Render helpers - Updated to show only Area Name
+     Manual search button
      -------------------------------------------------------------- */
+  const handleManualSearch = async () => {
+    if (!selectedArea) {
+      Alert.alert('Selection Required', 'Please pick State, Zone, Circle, Division and Area in the header.');
+      return;
+    }
+    if (!userAreas.includes(selectedArea)) {
+      Alert.alert('Not Available', 'The selected area is not in your accessible list.');
+      return;
+    }
+    lastFetchedArea.current = '';
+    await searchByArea(selectedArea);
+  };
+
+  /* --------------------------------------------------------------
+     Renders
+     -------------------------------------------------------------- */
+  const renderSelectionBanner = () => {
+    const notInUserList =
+      selectedArea && userAreas.length > 0 && !userAreas.includes(selectedArea);
+
+    return (
+      <View style={styles.selectionBanner}>
+        <View style={styles.selectionBannerRow}>
+          <Icon name="filter" size={14} color="#003844" />
+          <Text style={styles.selectionBannerTitle}>Current selection</Text>
+        </View>
+        <Text style={styles.selectionBannerText} numberOfLines={1}>
+          {selectedArea
+            ? `${selectedState || '-'} › ${selectedZone || '-'} › ${selectedCircle || '-'} › ${selectedDivision || '-'} › ${selectedArea}`
+            : 'Pick State, Zone, Circle, Division and Area in the header above.'}
+        </Text>
+
+        {notInUserList && (
+          <Text style={styles.selectionBannerWarning}>
+            ⚠ The selected area is not in your accessible list.
+          </Text>
+        )}
+
+        <View style={styles.selectionBannerActions}>
+          <TouchableOpacity
+            style={styles.bannerSearchBtn}
+            onPress={handleManualSearch}
+            disabled={loading || !selectedArea || notInUserList}
+          >
+            {loading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Icon name="search" size={14} color="#fff" />
+                <Text style={styles.bannerSearchBtnText}>Search</Text>
+              </>
+            )}
+          </TouchableOpacity>
+          {listsLoading && (
+            <ActivityIndicator size="small" color="#003844" style={{ marginLeft: 8 }} />
+          )}
+        </View>
+      </View>
+    );
+  };
+
   const renderSiteInfo = () => {
     if (!hasSearched || !selectedArea) return null;
-    
     return (
       <View style={styles.siteCard}>
         <Text style={styles.siteTitle}>Site Information</Text>
         <View style={styles.siteRow}>
           <Text style={styles.siteLabel}>SubStation:</Text>
           <Text style={styles.siteValue}>{selectedArea}</Text>
-        </View>
+        </View> 
       </View>
     );
   };
 
-  const renderGif = () => hasSearched && (
-    <View style={styles.gifContainer}>
-      <Image source={{ uri: statusGif }} style={styles.statusGif} resizeMode="contain" />
-    </View>
-  );
-
-  const renderLegend = () => hasSearched && cells.length > 0 && (
-    <View style={styles.legendContainer}>
-      <Text style={styles.title1}>Legends</Text>
-      <View style={styles.legendRow}>
-        {Object.entries(statusConfig).map(([name, cfg]) => (
-          <View key={name} style={styles.legendItem}>
-            <cfg.svg width={18} height={18} />
-            <Text style={styles.legendText}>{name}</Text>
-          </View>
-        ))}
+  const renderGif = () =>
+    hasSearched && (
+      <View style={styles.gifContainer}>
+        <Image source={{ uri: statusGif }} style={styles.statusGif} resizeMode="contain" />
       </View>
-    </View>
-  );
+    );
+
+  const renderLegend = () =>
+    hasSearched &&
+    cells.length > 0 && (
+      <View style={styles.legendContainer}>
+        <Text style={styles.title1}>Legends</Text>
+        <View style={styles.legendRow}>
+          {Object.entries(statusConfig).map(([name, cfg]) => (
+            <View key={name} style={styles.legendItem}>
+              <cfg.svg width={18} height={18} />
+              <Text style={styles.legendText}>{name}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    );
 
   const renderCells = () => {
     const rows = [];
@@ -691,103 +611,28 @@ const CellsScreen = () => {
 
     return rows.map((row, ri) => (
       <View key={`row-${ri}`} style={styles.gridRow}>
-        {row.map(cell => (
+        {row.map((cell) => (
           <CellLayout key={cell.cellNumber} cellData={cell} thresholds={thresholds} />
         ))}
-        {row.length < 5 && Array(5 - row.length).fill().map((_, ei) => (
-          <View key={`empty-${ri}-${ei}`} style={styles.cellPaper} />
-        ))}
+        {row.length < 5 &&
+          Array(5 - row.length)
+            .fill()
+            .map((_, ei) => <View key={`empty-${ri}-${ei}`} style={styles.cellPaper} />)}
       </View>
     ));
   };
 
-  /* --------------------------------------------------------------
-     JSX
-     -------------------------------------------------------------- */
   return (
     <AppContext.Provider value={appContextValue}>
       <View style={styles.container}>
         <ScrollView
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']} />}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']} />
+          }
           contentContainerStyle={styles.scrollContainer}
         >
+          {/* {renderSelectionBanner()} */}
 
-          {/* ---------- Pickers ---------- */}
-          <View style={styles.searchContainer}>
-            {/* State and Zone Row */}
-            <View style={styles.pickerRow}>
-              <View style={styles.pickerContainer}>
-                <RNPickerSelect
-                  onValueChange={onStateChange}
-                  items={states.map((s, i) => ({ label: s, value: s, key: `s-${i}` }))}
-                  placeholder={{ label: 'Select a state...', value: null }}
-                  style={pickerSelectStyles}
-                  value={selectedState}
-                  useNativeAndroidPickerStyle={false}
-                />
-              </View>
-
-              <View style={styles.pickerContainer}>
-                <RNPickerSelect
-                  onValueChange={onZoneChange}
-                  items={zones.map((z, i) => ({ label: z, value: z, key: `z-${i}` }))}
-                  placeholder={{ label: 'Select a zone...', value: null }}
-                  style={pickerSelectStyles}
-                  disabled={!selectedState}
-                  value={selectedZone}
-                  useNativeAndroidPickerStyle={false}
-                />
-              </View>
-            </View>
-
-            {/* Circle and Division Row */}
-            <View style={styles.pickerRow}>
-              <View style={styles.pickerContainer}>
-                <RNPickerSelect
-                  onValueChange={onCircleChange}
-                  items={circles.map((c, i) => ({ label: c, value: c, key: `c-${i}` }))}
-                  placeholder={{ label: 'Select a circle...', value: null }}
-                  style={pickerSelectStyles}
-                  disabled={!selectedZone}
-                  value={selectedCircle}
-                  useNativeAndroidPickerStyle={false}
-                />
-              </View>
-
-              <View style={styles.pickerContainer}>
-                <RNPickerSelect
-                  onValueChange={onDivisionChange}
-                  items={divisions.map((d, i) => ({ label: d, value: d, key: `d-${i}` }))}
-                  placeholder={{ label: 'Select a division...', value: null }}
-                  style={pickerSelectStyles}
-                  disabled={!selectedCircle}
-                  value={selectedDivision}
-                  useNativeAndroidPickerStyle={false}
-                />
-              </View>
-            </View>
-
-            {/* Area and Search Row */}
-            <View style={styles.pickerRow}>
-              <View style={styles.pickerContainer}>
-                <RNPickerSelect
-                  onValueChange={onAreaChange}
-                  items={areas.map((a, i) => ({ label: a, value: a, key: `a-${i}` }))}
-                  placeholder={{ label: 'Select an area...', value: null }}
-                  style={pickerSelectStyles}
-                  disabled={!selectedDivision || areas.length === 0}
-                  value={selectedArea}
-                  useNativeAndroidPickerStyle={false}
-                />
-              </View>
-
-              <TouchableOpacity style={styles.searchIconButton} onPress={performSearch} disabled={loading}>
-                {loading ? <ActivityIndicator size="small" color="#fff" /> : <Icon name="search" size={20} color="#fff" />}
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Auth Error Notice */}
           {authError && (
             <View style={styles.authErrorContainer}>
               <Text style={styles.authErrorText}>
@@ -796,7 +641,6 @@ const CellsScreen = () => {
             </View>
           )}
 
-          {/* ---------- Loading ---------- */}
           {loading && (
             <View style={styles.loaderContainer}>
               <ActivityIndicator size="large" color="#0000ff" />
@@ -804,11 +648,9 @@ const CellsScreen = () => {
             </View>
           )}
 
-          {/* ---------- Site info (Area Name only) + GIF ---------- */}
           {renderSiteInfo()}
           {renderGif()}
 
-          {/* ---------- Cells grid ---------- */}
           {hasSearched && cells.length > 0 && (
             <>
               <Text style={styles.title}>Cells Overview</Text>
@@ -817,100 +659,69 @@ const CellsScreen = () => {
             </>
           )}
 
-          {/* ---------- No data message ---------- */}
           {hasSearched && cells.length === 0 && !loading && (
             <Text style={styles.errorText}>No cell data available</Text>
           )}
 
-          {/* ---------- Legend ---------- */}
           {renderLegend()}
-
         </ScrollView>
       </View>
     </AppContext.Provider>
   );
 };
 
-/* --------------------------------------------------------------
-   Styles - Updated for site card
-   -------------------------------------------------------------- */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
   scrollContainer: { padding: 10 },
-  searchContainer: {
-    marginBottom: 15,
-    padding: 10,
+
+  selectionBanner: {
+    marginBottom: 12,
+    padding: 12,
+    backgroundColor: 'white',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#003844',
+    elevation: 2,
+  },
+  selectionBannerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  selectionBannerTitle: { marginLeft: 6, fontSize: 13, fontWeight: 'bold', color: '#003844' },
+  selectionBannerText: { fontSize: 12, color: '#333', marginBottom: 8 },
+  selectionBannerWarning: { fontSize: 12, color: '#F44336', marginBottom: 6 },
+  selectionBannerActions: { flexDirection: 'row', alignItems: 'center' },
+  bannerSearchBtn: {
+    backgroundColor: '#4CAF50',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bannerSearchBtnText: { color: '#fff', marginLeft: 6, fontWeight: 'bold', fontSize: 12 },
+
+  loaderContainer: { marginVertical: 20, alignItems: 'center' },
+  loaderText: { marginTop: 10, fontSize: 16, color: '#666' },
+  authErrorContainer: { backgroundColor: '#ff9800', padding: 10, borderRadius: 8, marginVertical: 10 },
+  authErrorText: { color: '#fff', textAlign: 'center', fontSize: 12 },
+
+  siteCard: {
+    marginVertical: 10,
+    padding: 15,
     backgroundColor: '#fff',
     borderRadius: 8,
     borderWidth: 2,
-    borderColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
     elevation: 5,
   },
-  pickerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
-  pickerContainer: { width: '46%', height: 32, marginRight: 4 },
-  searchIconButton: {
-    backgroundColor: '#4CAF50',
-    padding: 6,
-    borderRadius: 5,
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: 32,
-    height: 32,
-  },
-  loaderContainer: { marginVertical: 20, alignItems: 'center' },
-  loaderText: { marginTop: 10, fontSize: 16, color: '#666' },
-  authErrorContainer: {
-    backgroundColor: '#ff9800',
-    padding: 10,
-    borderRadius: 8,
-    marginVertical: 10,
-  },
-  authErrorText: {
-    color: '#fff',
-    textAlign: 'center',
-    fontSize: 12,
-  },
-
-  /* Site card - Updated for single line display */
-  siteCard: { 
-    marginVertical: 10, 
-    padding: 15, 
-    backgroundColor: '#fff', 
-    borderRadius: 8, 
-    borderWidth: 2, 
-    // borderColor: '#4CAF50', 
-    elevation: 5,
-  },
-  siteTitle: { 
-    fontSize: 16, 
-    fontWeight: 'bold', 
-    marginBottom: 10, 
-    textAlign: 'center',
-    color: '#333',
-  },
-  siteRow: { 
-    flexDirection: 'row', 
+  siteTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 10, textAlign: 'center', color: '#333' },
+  siteRow: {
+    flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 5,
   },
-  siteLabel: { 
-    fontSize: 14, 
-    fontWeight: 'bold', 
-    color: '#666',
-  },
-  siteValue: { 
-    fontSize: 14, 
-    color: '#4CAF50', 
-    fontWeight: 'bold',
-    flex: 1,
-    textAlign: 'right',
-  },
+  siteLabel: { fontSize: 14, fontWeight: 'bold', color: '#666' },
+  siteValue: { fontSize: 14, color: '#4CAF50', fontWeight: 'bold', flex: 1, textAlign: 'right' },
 
   gifContainer: { alignItems: 'center', marginVertical: 5 },
   statusGif: { width: 80, height: 15 },
@@ -936,7 +747,17 @@ const styles = StyleSheet.create({
   terminalContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: -3 },
   terminal: { width: 6, height: 6, borderTopLeftRadius: 1, borderTopRightRadius: 1 },
   cellLabel: { fontSize: 8, fontWeight: 'bold', color: '#fff', marginHorizontal: 2 },
-  cellBody: { width: 50, height: 80, borderWidth: 1, borderColor: '#FFFF00', borderRadius: 4, padding: 1, backgroundColor: '#000', flexDirection: 'column', alignItems: 'flex-start' },
+  cellBody: {
+    width: 50,
+    height: 80,
+    borderWidth: 1,
+    borderColor: '#FFFF00',
+    borderRadius: 4,
+    padding: 1,
+    backgroundColor: '#000',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+  },
   statusIcon: { marginLeft: 1, marginBottom: 1 },
   cellInfo: { flex: 1, marginTop: 1, paddingLeft: 1 },
   infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 1 },
@@ -949,35 +770,6 @@ const styles = StyleSheet.create({
   legendRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
   legendItem: { width: '25%', alignItems: 'center', marginVertical: 3 },
   legendText: { fontSize: 10, color: '#fff', marginTop: 5, textAlign: 'center' },
-});
-
-const pickerSelectStyles = StyleSheet.create({
-  inputIOS: {
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    backgroundColor: '#fff',
-    borderRadius: 5,
-    borderWidth: 1,
-    borderColor: '#4CAF50',
-    fontSize: 11,
-    color: '#000',
-    height: 32,
-    width: '100%',
-    textAlign: 'left',
-  },
-  inputAndroid: {
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    backgroundColor: '#fff',
-    borderRadius: 5,
-    borderWidth: 1,
-    borderColor: '#4CAF50',
-    fontSize: 11,
-    color: '#000',
-    height: 32,
-    width: '100%',
-    textAlign: 'left',
-  },
 });
 
 export default CellsScreen;

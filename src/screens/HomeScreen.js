@@ -1,8 +1,10 @@
+// src/screens/HomeScreen.js
 import React, {
   useState,
   useEffect,
   useRef,
   useCallback,
+  useContext,
 } from "react";
 import {
   View,
@@ -20,57 +22,22 @@ import {
 import { PieChart } from "react-native-chart-kit";
 import api from "../Api";
 import { WebView } from "react-native-webview";
-import RNPickerSelect from "react-native-picker-select";
 import { Ionicons } from "@expo/vector-icons";
+import { AuthContext } from "../../AuthContext";
+import { useSelection } from "../../SelectionContext";
 
 const screenWidth = Dimensions.get("window").width;
 const BASE_URL = "https://rbms.mahadiscom.in/mseb";
+const DASHBOARD_URL = `${BASE_URL}/api/dashboard`;
 
-/* ------------------- Alarm Definitions ------------------- */
-const ALARM_DEFS = [
-  { key: 'inputMains', label: 'Input Mains Fail', check: (i) => !!i.inputMains },
-  { key: 'inputPhase', label: 'Input Phase Fail', check: (i) => !!i.inputPhase },
-  { key: 'chargerTrip', label: 'Charger Trip', check: (i) => !!i.chargerTrip },
-  { key: 'dcEarth', label: 'DC Voltage Fault', check: (i) => i.dcVoltageOln === 0 || i.dcVoltageOln === 2 },
-  { key: 'stringVoltage', label: 'String Voltage Alarm', check: (i) => i.stringVoltageLhn === 0 || i.stringVoltageLhn === 2 },
-  { key: 'cellVoltageLn', label: 'Cell Voltage Low', check: (i) => !!i.cellVoltageLn },
-  { key: 'cellVoltageNh', label: 'Cell Voltage High', check: (i) => !!i.cellVoltageNh },
-  { key: 'socLn', label: 'SOC Low', check: (i) => !!i.socLn },
-  { key: 'rectifierFuse', label: 'Rectifier Fuse', check: (i) => !!i.rectifierFuse },
-  { key: 'filterFuse', label: 'Filter Fuse', check: (i) => !!i.filterFuse },
-  { key: 'outputMccb', label: 'Output MCCB', check: (i) => !!i.outputMccb },
-  { key: 'outputFuse', label: 'Output Fuse', check: (i) => !!i.outputFuse },
-  { key: 'batteryCondition', label: 'Battery Condition', check: (i) => !!i.batteryCondition },
-  { key: 'acVoltage', label: 'AC Voltage Alarm', check: (i) => i.acVoltageUln === 0 || i.acVoltageUln === 2 },
-  { key: 'ambientTemp', label: 'Ambient Temperature High', check: (i) => !!i.ambientTemperatureHn },
-  { key: 'cellTemp', label: 'Cell Temperature High', check: (i) => !!i.cellTemperatureHn },
-  { key: 'cellComm', label: 'Cell Communication Fail', check: (i) => !!i.cellCommunicationFd },
-  { key: 'bmsComm', label: 'BMS Communication Fail', check: (i) => !!i.bmsSedCommunication },
-  { key: 'bankCycle', label: 'Bank Cycle DC', check: (i) => !!i.bankCycleDc },
-  { key: 'buzzer', label: 'Buzzer', check: (i) => !!i.buzzer },
-  { key: 'chargerLoad', label: 'Charger Load', check: (i) => !!i.chargerLoad },
-  { key: 'alarmSupply', label: 'Alarm Supply Fuse', check: (i) => !!i.alarmSupplyFuse },
-  { key: 'thermalRunaway', label: 'Thermal Runaway', check: (i) => !!i.thermalRunaway },
-  { key: 'floatVoltage', label: 'Float Voltage', check: (i) => i.floatVoltage === 0 || i.floatVoltage === 2 },
-];
-
-const countActiveAlarms = (item) => {
-  if (!item) return 0;
-  return ALARM_DEFS.filter((d) => d.check(item)).length;
-};
-
-const hasActiveAlarm = (item) => {
-  return countActiveAlarms(item) > 0;
-};
-
-/* ------------------- Marker Icons ------------------- */
-const getMarkerIcon = (status) => {
-  return status
+const getMarkerIcon = (status) =>
+  status
     ? "https://cdn.jsdelivr.net/gh/pointhi/leaflet-color-markers/img/marker-icon-2x-green.png"
     : "https://cdn.jsdelivr.net/gh/pointhi/leaflet-color-markers/img/marker-icon-2x-red.png";
-};
 
-/* ------------------- Leaflet WebView ------------------- */
+/* =========================================================
+   Leaflet Map
+   ========================================================= */
 const LeafletMapView = ({ markers }) => {
   const webViewRef = useRef(null);
 
@@ -105,50 +72,36 @@ const LeafletMapView = ({ markers }) => {
     }
   }, [markers]);
 
-  const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Map</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <style>
-    body, html, #map { margin:0; padding:0; width:100%; height:100%; }
-  </style>
-</head>
-<body>
-  <div id="map"></div>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script>
-    const map = L.map('map').setView([21.0, 78.0], 5);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
-    map.whenReady(() => {
-      ${markersScript}
-      if (${markers.length} > 0) {
-        const group = L.featureGroup();
-        map.eachLayer(l => { if (l instanceof L.Marker) group.addLayer(l); });
-        map.fitBounds(group.getBounds(), { padding: [50, 50] });
-      }
-    });
-  </script>
-</body>
-</html>
-  `;
+  const html = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>body,html,#map{margin:0;padding:0;width:100%;height:100%;}</style>
+</head><body><div id="map"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const map = L.map('map').setView([21.0, 78.0], 5);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap'}).addTo(map);
+  map.whenReady(() => { ${markersScript}
+    if (${markers.length} > 0) {
+      const group = L.featureGroup();
+      map.eachLayer(l => { if (l instanceof L.Marker) group.addLayer(l); });
+      map.fitBounds(group.getBounds(), { padding: [50, 50] });
+    }
+  });
+</script></body></html>`;
 
   return (
     <WebView
       ref={webViewRef}
       source={{ html }}
       style={styles.map}
-      javaScriptEnabled={true}
-      domStorageEnabled={true}
-      startInLoadingState={true}
+      javaScriptEnabled
+      domStorageEnabled
+      startInLoadingState
       scalesPageToFit={false}
       renderLoading={() => (
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#f0f0f0" }}>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
           <ActivityIndicator size="large" color="#4CAF50" />
         </View>
       )}
@@ -157,7 +110,7 @@ const LeafletMapView = ({ markers }) => {
 };
 
 /* =========================================================
-   SHINY HORIZONTAL BAR CHART
+   Shiny Horizontal Bar Chart
    ========================================================= */
 const ShinyHorizontalBarChart = ({ data = [], title = "", onBarPress }) => {
   if (!data || data.length === 0) {
@@ -165,13 +118,12 @@ const ShinyHorizontalBarChart = ({ data = [], title = "", onBarPress }) => {
       <View style={styles.barChartContainer}>
         <Text style={styles.barChartTitle}>{title || "No Data"}</Text>
         <View style={styles.noDataContainer}>
-          <Text style={styles.noDataText}>No alarm data available</Text>  
+          <Text style={styles.noDataText}>No alarm data available</Text>
         </View>
       </View>
     );
   }
-
-  const sorted = [...data].sort((a, b) => b.alarms - a.alarms).slice(0, 15); 
+  const sorted = [...data].sort((a, b) => b.alarms - a.alarms).slice(0, 15);
   const max = Math.max(...sorted.map((d) => d.alarms), 1);
 
   return (
@@ -180,14 +132,12 @@ const ShinyHorizontalBarChart = ({ data = [], title = "", onBarPress }) => {
         <Text style={styles.barChartTitle} numberOfLines={1}>{title}</Text>
         <Text style={styles.barChartCount}>{sorted.length} items</Text>
       </View>
-
       <View style={styles.shinyLegend}>
         <View style={styles.legendItem}>
           <View style={[styles.legendColor, { backgroundColor: "#F44336" }]} />
           <Text style={styles.legendText}>Alarms (tap bar for details)</Text>
         </View>
       </View>
-
       <ScrollView style={styles.barScroll} showsVerticalScrollIndicator nestedScrollEnabled>
         {sorted.map((item, index) => {
           const barWidthPct = Math.max((item.alarms / max) * 100, 3);
@@ -214,185 +164,370 @@ const ShinyHorizontalBarChart = ({ data = [], title = "", onBarPress }) => {
   );
 };
 
+/* =========================================================
+   MAIN COMPONENT
+   ========================================================= */
 export default function HomeScreen() {
-  /* ------------------- State ------------------- */
-  const [pieChartData, setPieChartData] = useState([]);
-  const [markers, setMarkers] = useState([]);
-  const [states, setStates] = useState(["Maharastra"]);
-  const [selectedState, setSelectedState] = useState("Maharastra");
-  const [zones, setZones] = useState([]);
-  const [selectedZone, setSelectedZone] = useState(null);
-  const [circles, setCircles] = useState([]);
-  const [selectedCircle, setSelectedCircle] = useState(null);
-  const [divisions, setDivisions] = useState([]);
-  const [selectedDivision, setSelectedDivision] = useState(null);
-  const [areas, setAreas] = useState([]);
-  const [selectedArea, setSelectedArea] = useState(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [marginMinutes] = useState(60);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [selectedCommStatus, setSelectedCommStatus] = useState(null);
-  const [commTableData, setCommTableData] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [communicationData, setCommunicationData] = useState([]);
+  const { userToken } = useContext(AuthContext);
+  const {
+    selectedState,
+    selectedZone,
+    selectedCircle,
+    selectedDivision,
+    selectedArea,
+  } = useSelection();
 
-  const [circleStatusData, setCircleStatusData] = useState({
-    totalSites: 0,
-    activeAlarms: 0,
-    uptime: 0,
-    chargerBoost: 0,
-    chargerFloat: 0,
-    chargerTrip: 0,
-    floatVoltage: 0,
-    thermalRunaway: 0,
+  /* ------------------- State ------------------- */
+  const [refreshing, setRefreshing] = useState(false);
+
+  const [dashboardSummary, setDashboardSummary] = useState({
+    totalSitesCount: 0,
+    activeSitesCount: 0,
+    inactiveSitesCount: 0,
+    alarmActiveSitesCount: 0,
+    upTime: 0,
+    boostCount: 0,
+    floatCount: 0,
+    floatDeviationCount: 0,
+    thermalRunwayDeviationCount: 0,
   });
 
-  // Bar chart
+  const [siteList, setSiteList] = useState([]);
+  const [pendingSiteList, setPendingSiteList] = useState([]);
+
+  const [pieChartData, setPieChartData] = useState([]);
+  const [markers, setMarkers] = useState([]);
+
   const [barChartItems, setBarChartItems] = useState([]);
   const [barChartTitle, setBarChartTitle] = useState("Zones Alarm Distribution");
   const [currentLevel, setCurrentLevel] = useState("zones");
   const [barChartLoading, setBarChartLoading] = useState(false);
 
-  // Detail modal
+  // 🔹 Refs to hold the CURRENT bar-chart context (sync, no async state issues)
+  const currentZoneRef = useRef(null);
+  const currentCircleRef = useRef(null);
+  const currentDivisionRef = useRef(null);
+
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedCommStatus, setSelectedCommStatus] = useState(null);
+  const [commTableData, setCommTableData] = useState([]);
+
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [detailModalTitle, setDetailModalTitle] = useState("");
   const [detailTableData, setDetailTableData] = useState([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailCurrentLevel, setDetailCurrentLevel] = useState("");
 
-  const barChartRequestId = useRef(0);
+  /* ---------------- Caches & refs ---------------- */
+  const dashboardCache = useRef(new Map());
+  const alarmsCache = useRef(new Map());
+  const CACHE_TTL = 5 * 60_000;
+  const isFresh = (e) => e && Date.now() - e.ts < CACHE_TTL;
+
+  const reqIdRef = useRef(0);
+
+  /* ---------------- URL builder ---------------- */
+  const buildDashboardUrl = useCallback((z, c, d, a) => {
+    const p = [];
+    if (z) p.push(`zone=${encodeURIComponent(z)}`);
+    if (c) p.push(`circle=${encodeURIComponent(c)}`);
+    if (d) p.push(`subDivision=${encodeURIComponent(d)}`);
+    if (a) p.push(`area=${encodeURIComponent(a)}`);
+    return p.length ? `${DASHBOARD_URL}?${p.join("&")}` : DASHBOARD_URL;
+  }, []);
 
   /* =========================================================
-     BAR CHART – LOCAL device-alarms
+     Cached fetchers
      ========================================================= */
-  const fetchZoneAlarms = useCallback(async () => {
-    const requestId = ++barChartRequestId.current;
-    try {
-      setBarChartLoading(true);
-      const response = await api.get(`${BASE_URL}/device-alarms`);
-      if (requestId !== barChartRequestId.current) return;
 
-      if (response.data && Array.isArray(response.data)) {
-        const data = response.data
-          .filter((item) => item.zone && String(item.zone).trim() && item.zone !== "Unknown" && item.zone !== "N/A")
-          .map((item) => ({
-            name: String(item.zone).trim(),
-            alarms: item.deviceAlert || 0,
+  const fetchDashboardCached = useCallback(
+    async (z, c, d, a) => {
+      const key = `${z || ""}|${c || ""}|${d || ""}|${a || ""}`;
+      const cached = dashboardCache.current.get(key);
+      if (isFresh(cached)) return cached.data;
+      const res = await api.get(buildDashboardUrl(z, c, d, a));
+      dashboardCache.current.set(key, { data: res.data, ts: Date.now() });
+      return res.data;
+    },
+    [buildDashboardUrl]
+  );
+
+  const fetchAlarmsCached = useCallback(
+    async (zone, circle, division) => {
+      const key = `${zone || ""}|${circle || ""}|${division || ""}`;
+      const cached = alarmsCache.current.get(key);
+      if (isFresh(cached)) return cached.data;
+      const p = [];
+      if (zone) p.push(`zone=${encodeURIComponent(zone)}`);
+      if (circle) p.push(`circle=${encodeURIComponent(circle)}`);
+      if (division) p.push(`division=${encodeURIComponent(division)}`);
+      const url = `${BASE_URL}/device-alarms${p.length ? "?" + p.join("&") : ""}`;
+      const res = await api.get(url);
+      const data = Array.isArray(res.data) ? res.data : [];
+      alarmsCache.current.set(key, { data, ts: Date.now() });
+      return data;
+    },
+    []
+  );
+
+  const clearCaches = useCallback(() => {
+    dashboardCache.current.clear();
+    alarmsCache.current.clear();
+  }, []);
+
+  /* =========================================================
+     Apply dashboard response
+     ========================================================= */
+  const applyDashboard = useCallback((resp) => {
+    if (!resp) return;
+    const s = resp.summary || {};
+
+    setDashboardSummary({
+      totalSitesCount: s.totalSitesCount || 0,
+      activeSitesCount: s.activeSitesCount || 0,
+      inactiveSitesCount: s.inactiveSitesCount || 0,
+      alarmActiveSitesCount: s.alarmActiveSitesCount || 0,
+      upTime: s.upTime || 0,
+      boostCount: s.boostCount || 0,
+      floatCount: s.floatCount || 0,
+      floatDeviationCount: s.floatDeviationCount || 0,
+      thermalRunwayDeviationCount: s.thermalRunwayDeviationCount || 0,
+    });
+
+    const markersRaw = Array.isArray(resp.mapMarkerList) ? resp.mapMarkerList : [];
+
+    const normalize = (m) => ({
+      siteId: m.siteId || "--",
+      serialNumber: Array.isArray(m.serialNumber)
+        ? m.serialNumber[0] || "--"
+        : m.serialNumber || "--",
+      area: m.area || "N/A",
+      zone: m.zone || null,
+      circle: m.circle || null,
+      division: m.divison || m.division || m.subDivision || "N/A",
+      latitude: m.latitude,
+      longitude: m.longitude,
+      statusType: m.statusType,
+    });
+
+    const normalized = markersRaw.map(normalize);
+
+    const communicating = normalized.filter((x) => x.statusType === 0);
+    const nonCommunicating = normalized.filter((x) => x.statusType === 1);
+
+    setSiteList(communicating.map((x) => ({ ...x, status: true })));
+    setPendingSiteList(nonCommunicating.map((x) => ({ ...x, status: false })));
+
+    setMarkers(
+      normalized
+        .filter((x) => x.latitude && x.longitude)
+        .map((x) => ({
+          siteId: x.siteId,
+          serialNumber: x.serialNumber,
+          area: x.area,
+          latitude: x.latitude,
+          longitude: x.longitude,
+          status: x.statusType === 0,
+          icon: getMarkerIcon(x.statusType === 0),
+        }))
+    );
+
+    setPieChartData([
+      {
+        name: "Communicating",
+        count: s.activeSitesCount || communicating.length,
+        color: "#4CAF50",
+        legendFontColor: "#4CAF50",
+        legendFontSize: 10,
+      },
+      {
+        name: "Non-Commun",
+        count: s.inactiveSitesCount || nonCommunicating.length,
+        color: "#F44336",
+        legendFontColor: "#F44336",
+        legendFontSize: 10,
+      },
+    ]);
+  }, []);
+
+  /* =========================================================
+     LEVEL FETCHERS
+     🔹 Each bar item is enriched with { zone, circle } so the
+        tap handler always has correct context.
+     ========================================================= */
+
+  const fetchAllData = () => {
+    if (!userToken) return;
+    const reqId = ++reqIdRef.current;
+    setBarChartLoading(true);
+
+    // Reset context refs
+    currentZoneRef.current = null;
+    currentCircleRef.current = null;
+    currentDivisionRef.current = null;
+
+    fetchAlarmsCached(null, null, null)
+      .then((raw) => {
+        if (reqId !== reqIdRef.current || !Array.isArray(raw)) return;
+        const data = raw
+          .filter((i) => i.zone && i.zone !== "Unknown" && i.zone !== "N/A")
+          .map((i) => ({
+            name: String(i.zone).trim(),
+            alarms: i.deviceAlert || 0,
+            zone: String(i.zone).trim(),
+            circle: null,
           }));
         setCurrentLevel("zones");
         setBarChartItems(data);
         setBarChartTitle("Zones Alarm Distribution");
-      }
-    } catch (error) {
-      console.error("Error fetching zone alarms:", error);
-      if (requestId === barChartRequestId.current) setBarChartItems([]);
-    } finally {
-      if (requestId === barChartRequestId.current) setBarChartLoading(false);
-    }
-  }, []);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (reqId === reqIdRef.current) setBarChartLoading(false);
+      });
 
-  const fetchCircleAlarms = useCallback(async (zone) => {
-    if (!zone) return;
-    const requestId = ++barChartRequestId.current;
-    try {
-      setBarChartLoading(true);
-      const response = await api.get(
-        `${BASE_URL}/device-alarms?zone=${encodeURIComponent(zone)}`
-      );
-      if (requestId !== barChartRequestId.current) return;
+    fetchDashboardCached(null, null, null, null)
+      .then((d) => {
+        if (reqId === reqIdRef.current) applyDashboard(d);
+      })
+      .catch(() => {});
+  };
 
-      if (response.data && Array.isArray(response.data)) {
-        const data = response.data
-          .filter((item) => item.circle && String(item.circle).trim() && item.circle !== "Unknown" && item.circle !== "N/A")
-          .map((item) => ({
-            name: String(item.circle).trim(),
-            alarms: item.deviceAlert || 0,
+  const fetchAllForZone = (zone) => {
+    if (!userToken || !zone) return;
+    const reqId = ++reqIdRef.current;
+    setBarChartLoading(true);
+
+    // 🔹 Set context refs SYNCHRONOUSLY
+    currentZoneRef.current = zone;
+    currentCircleRef.current = null;
+    currentDivisionRef.current = null;
+
+    fetchAlarmsCached(zone, null, null)
+      .then((raw) => {
+        if (reqId !== reqIdRef.current || !Array.isArray(raw)) return;
+        const data = raw
+          .filter((i) => i.circle && i.circle !== "Unknown" && i.circle !== "N/A")
+          .map((i) => ({
+            name: String(i.circle).trim(),
+            alarms: i.deviceAlert || 0,
+            zone,
+            circle: String(i.circle).trim(),
           }));
         setCurrentLevel("circles");
         setBarChartItems(data);
         setBarChartTitle(`${zone} – Circles Alarm Distribution`);
-      }
-    } catch (error) {
-      console.error("Error fetching circle alarms:", error);
-      if (requestId === barChartRequestId.current) setBarChartItems([]);
-    } finally {
-      if (requestId === barChartRequestId.current) setBarChartLoading(false);
-    }
-  }, []);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (reqId === reqIdRef.current) setBarChartLoading(false);
+      });
 
-  const fetchDivisionAlarms = useCallback(async (zone, circle) => {
-    if (!zone || !circle) return;
-    const requestId = ++barChartRequestId.current;
-    try {
-      setBarChartLoading(true);
-      const response = await api.get(
-        `${BASE_URL}/device-alarms?zone=${encodeURIComponent(zone)}&circle=${encodeURIComponent(circle)}`
-      );
-      if (requestId !== barChartRequestId.current) return;
+    fetchDashboardCached(zone, null, null, null)
+      .then((d) => {
+        if (reqId === reqIdRef.current) applyDashboard(d);
+      })
+      .catch(() => {});
+  };
 
-      if (response.data && Array.isArray(response.data)) {
-        const data = response.data
-          .filter((item) => item.division && String(item.division).trim() && item.division !== "Unknown" && item.division !== "N/A")
-          .map((item) => ({
-            name: String(item.division).trim(),
-            alarms: item.deviceAlert || 0,
+  const fetchAllForCircle = (zone, circle) => {
+    if (!userToken || !zone || !circle) return;
+    const reqId = ++reqIdRef.current;
+    setBarChartLoading(true);
+
+    // 🔹 Set context refs SYNCHRONOUSLY
+    currentZoneRef.current = zone;
+    currentCircleRef.current = circle;
+    currentDivisionRef.current = null;
+
+    fetchAlarmsCached(zone, circle, null)
+      .then((raw) => {
+        if (reqId !== reqIdRef.current || !Array.isArray(raw)) return;
+        const data = raw
+          .filter((i) => i.division && i.division !== "Unknown" && i.division !== "N/A")
+          .map((i) => ({
+            name: String(i.division).trim(),
+            alarms: i.deviceAlert || 0,
+            zone,
+            circle,
           }));
         setCurrentLevel("divisions");
         setBarChartItems(data);
         setBarChartTitle(`${circle} – Divisions Alarm Distribution`);
-      }
-    } catch (error) {
-      console.error("Error fetching division alarms:", error);
-      if (requestId === barChartRequestId.current) setBarChartItems([]);
-    } finally {
-      if (requestId === barChartRequestId.current) setBarChartLoading(false);
-    }
-  }, []);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (reqId === reqIdRef.current) setBarChartLoading(false);
+      });
 
-  const fetchAreaAlarms = useCallback(async (zone, circle, division) => {
-    if (!zone || !circle || !division) return;
-    const requestId = ++barChartRequestId.current;
-    try {
-      setBarChartLoading(true);
-      const response = await api.get(
-        `${BASE_URL}/api/getCoordinates/newCircle?circle=${encodeURIComponent(circle)}&marginMinutes=${marginMinutes}&username=Master`
-      );
-      if (requestId !== barChartRequestId.current) return;
+    fetchDashboardCached(zone, circle, null, null)
+      .then((d) => {
+        if (reqId === reqIdRef.current) applyDashboard(d);
+      })
+      .catch(() => {});
+  };
 
-      if (response.data && Array.isArray(response.data)) {
-        const filteredData = response.data.filter(
-          (item) => item.zone === zone && (item.divison === division || item.division === division)
-        );
+  const fetchAllForDivision = (zone, circle, division) => {
+    if (!userToken || !zone || !circle || !division) return;
+    const reqId = ++reqIdRef.current;
+    setBarChartLoading(true);
 
-        const areaMap = new Map();
-        filteredData.forEach((item) => {
-          const areaName = (item.area || "Unknown").trim();
-          if (areaName === "Unknown" || areaName === "N/A" || areaName === "") return;
-          
-          if (!areaMap.has(areaName)) areaMap.set(areaName, { alarms: 0 });
-          if (item.statusType !== 1 && item.isNotCommunicating !== false) {
-            areaMap.get(areaName).alarms += 1;
-          }
-        });
+    // 🔹 Set context refs SYNCHRONOUSLY
+    currentZoneRef.current = zone;
+    currentCircleRef.current = circle;
+    currentDivisionRef.current = division;
 
-        const data = Array.from(areaMap.entries()).map(([name, value]) => ({
-          name,
-          alarms: value.alarms,
-        }));
-
+    fetchAlarmsCached(zone, circle, division)
+      .then((raw) => {
+        if (reqId !== reqIdRef.current || !Array.isArray(raw)) return;
+        const data = raw
+          .filter((i) => i.area && i.area !== "Unknown" && i.area !== "N/A")
+          .map((i) => ({
+            name: String(i.area).trim(),
+            alarms: i.deviceAlert || 0,
+            zone,
+            circle,
+            division,
+          }));
         setCurrentLevel("areas");
         setBarChartItems(data);
         setBarChartTitle(`${division} – Areas Alarm Distribution`);
-      }
-    } catch (error) {
-      console.error("Error fetching area alarms:", error);
-      if (requestId === barChartRequestId.current) setBarChartItems([]);
-    } finally {
-      if (requestId === barChartRequestId.current) setBarChartLoading(false);
-    }
-  }, [marginMinutes]);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (reqId === reqIdRef.current) setBarChartLoading(false);
+      });
 
-  /* ------------------- Detail handlers ------------------- */
+    fetchDashboardCached(zone, circle, division, null)
+      .then((d) => {
+        if (reqId === reqIdRef.current) applyDashboard(d);
+      })
+      .catch(() => {});
+  };
+
+  const fetchDashboardForArea = (zone, circle, division, area) => {
+    if (!userToken) return;
+    const reqId = ++reqIdRef.current;
+    setBarChartLoading(true);
+
+    // 🔹 Set context refs SYNCHRONOUSLY
+    currentZoneRef.current = zone;
+    currentCircleRef.current = circle;
+    currentDivisionRef.current = division;
+
+    fetchDashboardCached(zone, circle, division, area)
+      .then((d) => {
+        if (reqId === reqIdRef.current) applyDashboard(d);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (reqId === reqIdRef.current) setBarChartLoading(false);
+      });
+  };
+
+  /* =========================================================
+     Drill-down handlers (bar chart → modal)
+     ========================================================= */
   const handleBarPress = async (item) => {
     setDetailLoading(true);
     setDetailModalVisible(true);
@@ -402,84 +537,109 @@ export default function HomeScreen() {
       if (currentLevel === "zones") {
         setDetailModalTitle(`${item.name} – Circles`);
         setDetailCurrentLevel("circles");
-        const response = await api.get(
-          `${BASE_URL}/device-alarms?zone=${encodeURIComponent(item.name)}`
-        );
-        if (response.data && Array.isArray(response.data)) {
-          const tableData = response.data
+        const raw = await fetchAlarmsCached(item.name, null, null);
+        setDetailTableData(
+          raw
             .filter((d) => d.circle && d.circle !== "Unknown" && d.circle !== "N/A")
-            .map((d, idx) => ({
-              key: `circle-${idx}`,
-              name: d.circle || "N/A",
+            .map((d, i) => ({
+              key: `circle-${i}`,
+              name: d.circle,
               count: d.deviceAlert || 0,
               level: "circles",
               parentName: item.name,
-            }));
-          setDetailTableData(tableData);
-        }
+              zone: item.name,          // 🔹 carry context
+              circle: String(d.circle).trim(),
+            }))
+        );
       } else if (currentLevel === "circles") {
         setDetailModalTitle(`${item.name} – Divisions`);
         setDetailCurrentLevel("divisions");
-        const zoneName = selectedZone || item.parentName;
-        const response = await api.get(
-          `${BASE_URL}/device-alarms?zone=${encodeURIComponent(zoneName)}&circle=${encodeURIComponent(item.name)}`
-        );
-        if (response.data && Array.isArray(response.data)) {
-          const tableData = response.data
+        const zoneName = item.zone || currentZoneRef.current || selectedZone;
+        const raw = await fetchAlarmsCached(zoneName, item.name, null);
+        setDetailTableData(
+          raw
             .filter((d) => d.division && d.division !== "Unknown" && d.division !== "N/A")
-            .map((d, idx) => ({
-              key: `division-${idx}`,
-              name: d.division || "N/A",
+            .map((d, i) => ({
+              key: `division-${i}`,
+              name: d.division,
               count: d.deviceAlert || 0,
               level: "divisions",
               parentName: item.name,
-            }));
-          setDetailTableData(tableData);
-        }
+              zone: zoneName,           // 🔹 carry context
+              circle: item.name,        // 🔹 carry context
+            }))
+        );
       } else if (currentLevel === "divisions") {
+        // 🔹 Areas — context comes from the tapped bar item itself
         setDetailModalTitle(`${item.name} – Areas`);
         setDetailCurrentLevel("areas");
-        const circleName = selectedCircle || item.parentName;
-        const response = await api.get(
-          `${BASE_URL}/api/getCoordinates/newCircle?circle=${encodeURIComponent(circleName)}&marginMinutes=${marginMinutes}&username=Master`
-        );
-        if (response.data && Array.isArray(response.data)) {
-          const filtered = response.data.filter(
-            (d) => (d.divison === item.name || d.division === item.name) &&
-                   (!selectedZone || d.zone === selectedZone)
+
+        const zoneName = item.zone || currentZoneRef.current || selectedZone;
+        const circleName = item.circle || currentCircleRef.current || selectedCircle;
+
+        console.log("[handleBarPress] division tap:", {
+          item: item.name,
+          zoneName,
+          circleName,
+        });
+
+        if (!zoneName || !circleName) {
+          Alert.alert(
+            "Missing Context",
+            `Zone or Circle not set.\nzone="${zoneName}" circle="${circleName}"`
           );
-          const areaMap = new Map();
-          filtered.forEach((d) => {
-            const areaName = (d.area || "Unknown").trim();
-            if (areaName === "Unknown" || areaName === "N/A" || areaName === "") return;
-            
-            if (!areaMap.has(areaName)) areaMap.set(areaName, { alarms: 0 });
-            if (d.statusType !== 1) areaMap.get(areaName).alarms += 1;
-          });
-          const tableData = Array.from(areaMap.entries()).map(([name, value], idx) => ({
-            key: `area-${idx}`,
-            name,
-            count: value.alarms,
+          setDetailTableData([]);
+          return;
+        }
+
+        const url =
+          `${BASE_URL}/device-alarms` +
+          `?zone=${encodeURIComponent(zoneName)}` +
+          `&circle=${encodeURIComponent(circleName)}` +
+          `&division=${encodeURIComponent(item.name)}`;
+
+        console.log("[handleBarPress] fetching:", url);
+
+        const res = await api.get(url);
+        const raw = Array.isArray(res.data) ? res.data : [];
+
+        console.log("[handleBarPress] areas returned:", raw.length);
+
+        const rows = raw
+          .filter((d) => d.area && d.area !== "Unknown" && d.area !== "N/A")
+          .map((d, i) => ({
+            key: `area-${i}`,
+            name: String(d.area).trim(),
+            count: d.deviceAlert || 0,
             level: "areas",
             parentName: item.name,
+            zone: zoneName,
+            circle: circleName,
+            division: item.name,
           }));
-          setDetailTableData(tableData); 
-        }
+
+        setDetailTableData(rows);
       } else {
+        // Areas → Sites
         setDetailModalTitle(`${item.name} – Sites`);
         setDetailCurrentLevel("sites");
-        const sites = communicationData.filter((d) => d.area === item.name);
-        const tableData = sites.map((d, idx) => ({
-          key: `site-${idx}`,
-          name: d.siteId || "N/A",
-          count: d.status ? 0 : 1,
-          level: "sites",
-          parentName: item.name,
-        }));
-        setDetailTableData(tableData);
+        const sites = siteList.filter((s) => s.area === item.name);
+        setDetailTableData(
+          sites.map((s, i) => ({
+            key: `site-${i}`,
+            name: s.siteId || "N/A",
+            count: 0,
+            level: "sites",
+            parentName: item.name,
+          }))
+        );
       }
-    } catch (error) {
-      console.error("Error loading detail table:", error);
+    } catch (e) {
+      if (e?.response?.status === 401 || e?.response?.status === 403) {
+        setDetailModalVisible(false);
+        return;
+      }
+      console.error("[handleBarPress] error:", e);
       Alert.alert("Error", "Failed to load details");
       setDetailModalVisible(false);
     } finally {
@@ -493,81 +653,87 @@ export default function HomeScreen() {
       setDetailModalTitle(`${item.name} – Divisions`);
       setDetailCurrentLevel("divisions");
       try {
-        const zoneName = selectedZone || item.parentName;
-        const response = await api.get(
-          `${BASE_URL}/device-alarms?zone=${encodeURIComponent(zoneName)}&circle=${encodeURIComponent(item.name)}`
-        );
-        if (response.data && Array.isArray(response.data)) {
-          const tableData = response.data
+        // 🔹 Use the row's own context first
+        const zoneName = item.zone || currentZoneRef.current || selectedZone;
+        const raw = await fetchAlarmsCached(zoneName, item.name, null);
+        setDetailTableData(
+          raw
             .filter((d) => d.division && d.division !== "Unknown" && d.division !== "N/A")
-            .map((d, idx) => ({
-              key: `division-${idx}`,
-              name: d.division || "N/A",
+            .map((d, i) => ({
+              key: `division-${i}`,
+              name: d.division,
               count: d.deviceAlert || 0,
               level: "divisions",
               parentName: item.name,
-            }));
-          setDetailTableData(tableData);
-        }
-      } catch (error) {
-        console.error(error);
+              zone: zoneName,
+              circle: item.name,
+            }))
+        );
+      } catch {
         Alert.alert("Error", "Failed to load divisions");
       } finally {
         setDetailLoading(false);
       }
     } else if (item.level === "divisions") {
+      // 🔹 Areas from a division row
       setDetailLoading(true);
       setDetailModalTitle(`${item.name} – Areas`);
       setDetailCurrentLevel("areas");
       try {
-        const circleName = selectedCircle || item.parentName;
-        const response = await api.get(
-          `${BASE_URL}/api/getCoordinates/newCircle?circle=${encodeURIComponent(circleName)}&marginMinutes=${marginMinutes}&username=Master`
-        );
-        if (response.data && Array.isArray(response.data)) {
-          const filtered = response.data.filter(
-            (d) => (d.divison === item.name || d.division === item.name) &&
-                   (!selectedZone || d.zone === selectedZone)
-          );
-          const areaMap = new Map();
-          filtered.forEach((d) => {
-            const areaName = (d.area || "Unknown").trim();
-            if (areaName === "Unknown" || areaName === "N/A" || areaName === "") return;
-            
-            if (!areaMap.has(areaName)) areaMap.set(areaName, { alarms: 0 });
-            if (d.statusType !== 1) areaMap.get(areaName).alarms += 1;
-          });
-          const tableData = Array.from(areaMap.entries()).map(([name, value], idx) => ({
-            key: `area-${idx}`,
-            name,
-            count: value.alarms,
-            level: "areas",
-            parentName: item.name,
-          }));
-          setDetailTableData(tableData);
+        const zoneName = item.zone || currentZoneRef.current || selectedZone;
+        const circleName = item.circle || currentCircleRef.current || selectedCircle;
+
+        if (!zoneName || !circleName) {
+          Alert.alert("Error", "Zone or Circle not set");
+          return;
         }
-      } catch (error) {
-        console.error(error);
+
+        const url =
+          `${BASE_URL}/device-alarms` +
+          `?zone=${encodeURIComponent(zoneName)}` +
+          `&circle=${encodeURIComponent(circleName)}` +
+          `&division=${encodeURIComponent(item.name)}`;
+
+        const res = await api.get(url);
+        const raw = Array.isArray(res.data) ? res.data : [];
+
+        setDetailTableData(
+          raw
+            .filter((d) => d.area && d.area !== "Unknown" && d.area !== "N/A")
+            .map((d, i) => ({
+              key: `area-${i}`,
+              name: String(d.area).trim(),
+              count: d.deviceAlert || 0,
+              level: "areas",
+              parentName: item.name,
+              zone: zoneName,
+              circle: circleName,
+              division: item.name,
+            }))
+        );
+      } catch (e) {
+        console.error("Failed to load areas:", e);
         Alert.alert("Error", "Failed to load areas");
       } finally {
         setDetailLoading(false);
       }
     } else if (item.level === "areas") {
+      // 🔹 Sites
       setDetailLoading(true);
       setDetailModalTitle(`${item.name} – Sites`);
       setDetailCurrentLevel("sites");
       try {
-        const sites = communicationData.filter((d) => d.area === item.name);
-        const tableData = sites.map((d, idx) => ({
-          key: `site-${idx}`,
-          name: d.siteId || "N/A",
-          count: d.status ? 0 : 1,
-          level: "sites",
-          parentName: item.name,
-        }));
-        setDetailTableData(tableData);
-      } catch (error) {
-        console.error(error);
+        const sites = siteList.filter((s) => s.area === item.name);
+        setDetailTableData(
+          sites.map((s, i) => ({
+            key: `site-${i}`,
+            name: s.siteId || "N/A",
+            count: 0,
+            level: "sites",
+            parentName: item.name,
+          }))
+        );
+      } catch {
         Alert.alert("Error", "Failed to load sites");
       } finally {
         setDetailLoading(false);
@@ -575,479 +741,78 @@ export default function HomeScreen() {
     }
   };
 
-  /* =========================================================
-     HIERARCHY PICKERS - UPDATED WITH CORRECT API ENDPOINTS
-     ========================================================= */
-  const fetchStates = async () => {
-    setStates(["Maharastra"]);
-  };
-
-  const fetchZonesForState = async (state) => {
-    if (!state) return;
-    try {
-      // Use the correct API endpoint for zones
-      const response = await api.get(`${BASE_URL}/api/zones?state=${encodeURIComponent(state)}`);
-      const data = Array.isArray(response.data) ? response.data : [];
-      
-      if (data.length > 0) {
-        // Extract zone names from the response
-        const zoneNames = data.map((item) => item.name).filter(Boolean);
-        setZones(zoneNames);
-        return;
-      }
-      
-      // Fallback: if API doesn't return zones, try from communicationData
-      if (communicationData && communicationData.length > 0) {
-        const uniqueZones = [
-          ...new Set(
-            communicationData
-              .map((item) => item.zone)
-              .filter((z) => z && z !== "N/A" && z !== "Unknown" && String(z).trim())
-          ),
-        ];
-        if (uniqueZones.length > 0) {
-          setZones(uniqueZones);
-          return;
-        }
-      }
-
-      // Final fallback
-      setZones(["Bhandup", "Kalyan", "Nashik", "Jalgaon", "Konkan"]);
-    } catch (e) {
-      console.error("Error fetching zones:", e);
-      // Fallback values
-      setZones(["Bhandup", "Kalyan", "Nashik", "Jalgaon", "Konkan"]);
-    }
-  };
-
-  const fetchCirclesForZone = async (zone) => {
-    if (!zone) return;
-    try {
-      const response = await api.get(
-        `${BASE_URL}/api/circles?zone=${encodeURIComponent(zone)}`
-      );
-      const data = Array.isArray(response.data) ? response.data : [];
-      const circleNames = data.map((item) => item.name).filter(Boolean);
-      setCircles(circleNames.length > 0 ? circleNames : []);
-    } catch (e) {
-      console.error("Error fetching circles:", e);
-      setCircles([]);
-    }
-  };
-
-  const fetchDivisionsForCircle = async (circle) => {
-    if (!circle) return;
-    try {
-      const response = await api.get(
-        `${BASE_URL}/api/divisions?circle=${encodeURIComponent(circle)}`
-      );
-      const data = Array.isArray(response.data) ? response.data : [];
-      const divisionNames = data.map((item) => item.name).filter(Boolean);
-      setDivisions(divisionNames.length > 0 ? divisionNames : []);
-    } catch (e) {
-      console.error("Error fetching divisions:", e);
-      setDivisions([]);
-    }
-  };
-
-  const fetchAreasForDivision = async (division) => {
-    if (!division) return;
-    try {
-      const response = await api.get(
-        `${BASE_URL}/api/areas?division=${encodeURIComponent(division)}`
-      );
-      const data = Array.isArray(response.data) ? response.data : [];
-      let filtered = data;
-      if (selectedZone) {
-        filtered = data.filter((item) => item.zone === selectedZone);
-      }
-      const areaNames = filtered.map((item) => item.name).filter(Boolean);
-      setAreas(areaNames.length > 0 ? areaNames : []);
-    } catch (e) {
-      console.error("Error fetching areas:", e);
-      setAreas([]);
-    }
-  };
-
-  /* ========== CORE: /latest called ONLY ONCE ========== */
-  const fetchCommunicationStatus = async () => {
-    try {
-      console.log("Fetching /latest ...");
-      const response = await api.get(`${BASE_URL}/latest`);
-
-      if (!response.data) {
-        Alert.alert("Error", "No data received from /latest");
-        setCommunicationData([]);
-        applyFiltersAndUpdateUI([]);
-        return;
-      }
-
-      const rawData = Array.isArray(response.data) ? response.data : [];
-      console.log("Latest records received:", rawData.length);
-
-      const data = rawData.map((item) => {
-        const stringVoltage = Number(item.stringVoltage) || 0;
-        const instantaneousCurrent = Number(item.instantaneousCurrent) || 0;
-        const isCommunicating = item.isNotCommunicating === false;
-
-        const isFloat =
-          stringVoltage >= 33 && stringVoltage <= 35 && instantaneousCurrent < 10;
-        const isBoost =
-          stringVoltage > 35 && instantaneousCurrent < 10;
-        const isTrip = item.chargerTrip === true;
-
-        return {
-          ...item,
-          status: isCommunicating,
-          serialNumber: item.serialNumber || "N/A",
-          area: item.area || "N/A",
-          state: item.state || "N/A",
-          zone: item.zone || "N/A",
-          circle: item.circle || "N/A",
-          division: item.division || item.divison || "N/A",
-          isFloat,
-          isBoost,
-          isTrip,
-          stringVoltage,
-          instantaneousCurrent,
-        };
-      });
-
-      setCommunicationData(data);
-      applyFiltersAndUpdateUI(data);
-    } catch (e) {
-      console.error("Error fetching /latest:", e?.response?.status, e?.message);
-      Alert.alert(
-        "API Error",
-        `Failed to load /latest\nStatus: ${e?.response?.status || "Network Error"}`
-      );
-      setCommunicationData([]);
-      applyFiltersAndUpdateUI([]);
-    }
-  };
-
-  /* ========== Filter by pickers ========== */
-  const applyFiltersAndUpdateUI = useCallback(
-    (fullData) => {
-      if (!fullData || fullData.length === 0) {
-        setCircleStatusData({
-          totalSites: 0,
-          activeAlarms: 0,
-          uptime: 0,
-          chargerBoost: 0,
-          chargerFloat: 0,
-          chargerTrip: 0,
-          floatVoltage: 0,
-          thermalRunaway: 0,
-        });
-        setPieChartData([]);
-        setMarkers([]);
-        return;
-      }
-
-      let filtered = [...fullData];
-
-      // Apply filters
-      if (selectedArea) {
-        filtered = filtered.filter((item) => item.area === selectedArea);
-      } else if (selectedDivision) {
-        filtered = filtered.filter(
-          (item) =>
-            item.division === selectedDivision ||
-            item.divison === selectedDivision
-        );
-      } else if (selectedCircle) {
-        filtered = filtered.filter((item) => item.circle === selectedCircle);
-      } else if (selectedZone) {
-        filtered = filtered.filter(
-          (item) =>
-            !item.zone ||
-            item.zone === "N/A" ||
-            item.zone === selectedZone
-        );
-      }
-
-      let communicatingCount = 0;
-      let nonCommunicatingCount = 0;
-      let chargerBoost = 0;
-      let chargerFloat = 0;
-      let chargerTrip = 0;
-      let floatVoltage = 0;
-      let thermalRunaway = 0;
-      let activeAlarms = 0;
-
-      filtered.forEach((item) => {
-        // Communication status
-        if (item.status === true) communicatingCount++;
-        else nonCommunicatingCount++;
-
-        // Charger status
-        if (item.isBoost) chargerBoost++;
-        if (item.isFloat) chargerFloat++;
-        if (item.isTrip) chargerTrip++;
-
-        // Check for Float Voltage alarm
-        if (item.floatVoltage === 0 || item.floatVoltage === 2) {
-          floatVoltage++;
-        }
-
-        // Check for Thermal Runaway alarm
-        if (item.thermalRunaway === true) {
-          thermalRunaway++;
-        }
-
-        // Check for active alarms using ALARM_DEFS
-        if (hasActiveAlarm(item)) {
-          activeAlarms++;
-        }
-      });
-
-      const totalSites = filtered.length;
-      const uptime = totalSites > 0 ? (communicatingCount / totalSites) * 100 : 0;
-
-      setCircleStatusData({
-        totalSites,
-        activeAlarms,
-        uptime: Math.round(uptime * 10) / 10,
-        chargerBoost,
-        chargerFloat,
-        chargerTrip,
-        floatVoltage,
-        thermalRunaway,
-      });
-
-      setPieChartData([
-        {
-          name: "Communicating",
-          count: communicatingCount,
-          color: "#4CAF50",
-          legendFontColor: "#4CAF50",
-          legendFontSize: 10,
-        },
-        {
-          name: "Non-Commun",
-          count: nonCommunicatingCount,
-          color: "#F44336",
-          legendFontColor: "#F44336",
-          legendFontSize: 10,
-        },
-      ]);
-
-      const mapMarkers = filtered
-        .filter((item) => item.latitude && item.longitude)
-        .map((item) => ({
-          siteId: item.siteId,
-          serialNumber: item.serialNumber,
-          area: item.area,
-          state: item.state,
-          zone: item.zone,
-          circle: item.circle,
-          division: item.division,
-          latitude: item.latitude,
-          longitude: item.longitude,
-          status: item.status,
-          icon: getMarkerIcon(item.status),
-        }));
-
-      setMarkers(mapMarkers);
-    },
-    [selectedZone, selectedCircle, selectedDivision, selectedArea]
-  );
-
-  /* ------------------- Picker Handlers ------------------- */
-  const handleStateSelection = (state) => {
-    setSelectedState(state);
-    setSelectedZone(null);
-    setSelectedCircle(null);
-    setSelectedDivision(null);
-    setSelectedArea(null);
-    setZones([]);
-    setCircles([]);
-    setDivisions([]);
-    setAreas([]);
-    if (state) {
-      fetchZonesForState(state);
-      fetchZoneAlarms();
-    }
-  };
-
-  const handleZoneSelection = (zone) => {
-    setSelectedZone(zone);
-    setSelectedCircle(null);
-    setSelectedDivision(null);
-    setSelectedArea(null);
-    setCircles([]);
-    setDivisions([]);
-    setAreas([]);
-    if (zone) {
-      fetchCirclesForZone(zone);
-      fetchCircleAlarms(zone);
-    } else if (selectedState) {
-      fetchZonesForState(selectedState);
-      fetchZoneAlarms();
-    }
-  };
-
-  const handleCircleSelection = (circle) => {
-    setSelectedCircle(circle);
-    setSelectedDivision(null);
-    setSelectedArea(null);
-    setDivisions([]);
-    setAreas([]);
-    if (circle) {
-      fetchDivisionsForCircle(circle);
-      if (selectedZone) fetchDivisionAlarms(selectedZone, circle);
-    } else if (selectedZone) {
-      fetchCirclesForZone(selectedZone);
-      fetchCircleAlarms(selectedZone);
-    } else if (selectedState) {
-      fetchZonesForState(selectedState);
-      fetchZoneAlarms();
-    }
-  };
-
-  const handleDivisionSelection = (division) => {
-    setSelectedDivision(division);
-    setSelectedArea(null);
-    setAreas([]);
-    if (division) {
-      fetchAreasForDivision(division);
-      if (selectedZone && selectedCircle) {
-        fetchAreaAlarms(selectedZone, selectedCircle, division);
-      }
-    } else if (selectedCircle) {
-      fetchDivisionsForCircle(selectedCircle);
-      if (selectedZone) fetchDivisionAlarms(selectedZone, selectedCircle);
-    } else if (selectedZone) {
-      fetchCirclesForZone(selectedZone);
-      fetchCircleAlarms(selectedZone);
-    } else if (selectedState) {
-      fetchZonesForState(selectedState);
-      fetchZoneAlarms();
-    }
-  };
-
-  const handleAreaSelection = (area) => {
-    setSelectedArea(area);
-  };
-
-  const handleClear = async () => {
-    setLoading(true);
-    try {
-      setSelectedZone(null);
-      setSelectedCircle(null);
-      setSelectedDivision(null);
-      setSelectedArea(null);
-      setCircles([]);
-      setDivisions([]);
-      setAreas([]);
-      if (selectedState) {
-        fetchZonesForState(selectedState);
-        fetchZoneAlarms();
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  /* ---------------- Refresh ---------------- */
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      setSelectedZone(null);
-      setSelectedCircle(null);
-      setSelectedDivision(null);
-      setSelectedArea(null);
-      setZones([]);
-      setCircles([]);
-      setDivisions([]);
-      setAreas([]);
-      await fetchCommunicationStatus();
-      await fetchStates();
-      await fetchZoneAlarms();
+      clearCaches();
+      if (selectedArea) {
+        fetchDashboardForArea(selectedZone, selectedCircle, selectedDivision, selectedArea);
+      } else if (selectedDivision) {
+        fetchAllForDivision(selectedZone, selectedCircle, selectedDivision);
+      } else if (selectedCircle) {
+        fetchAllForCircle(selectedZone, selectedCircle);
+      } else if (selectedZone) {
+        fetchAllForZone(selectedZone);
+      } else {
+        fetchAllData();
+      }
     } finally {
       setRefreshing(false);
     }
   };
 
+  /* ---------------- Pie chart button → modal ---------------- */
   const handleCommPieChartClick = (status) => {
     setSelectedCommStatus(status);
+    const wantCommunicating = status === "Communicating";
 
-    let filtered = [...communicationData];
+    const source = wantCommunicating ? siteList : pendingSiteList;
 
+    let filtered = [...source];
     if (selectedArea) {
-      filtered = filtered.filter((item) => item.area === selectedArea);
+      filtered = filtered.filter((s) => s.area === selectedArea);
     } else if (selectedDivision) {
       filtered = filtered.filter(
-        (item) =>
-          item.division === selectedDivision ||
-          item.divison === selectedDivision
+        (s) => (s.division || s.subDivision) === selectedDivision
       );
     } else if (selectedCircle) {
-      filtered = filtered.filter((item) => item.circle === selectedCircle);
+      filtered = filtered.filter((s) => s.circle === selectedCircle);
     } else if (selectedZone) {
-      filtered = filtered.filter(
-        (item) =>
-          !item.zone ||
-          item.zone === "N/A" ||
-          item.zone === selectedZone
-      );
+      filtered = filtered.filter((s) => s.zone === selectedZone);
     }
 
-    const tableData = filtered
-      .filter((item) =>
-        status === "Communicating" ? item.status === true : item.status === false
-      )
-      .map((item, idx) => ({
-        siteId: item.siteId || "--",
-        serialNumber: item.serialNumber || "--",
-        area: item.area || "N/A",
-        key: `comm-${item.siteId}-${idx}`,
-      }));
+    const tableData = filtered.map((s, i) => ({
+      siteId: s.siteId || "--",
+      serialNumber: s.serialNumber || "--",
+      area: s.area || "N/A",
+      key: `comm-${wantCommunicating ? "y" : "n"}-${s.siteId}-${i}`,
+    }));
 
     setCommTableData(tableData);
     setModalVisible(true);
   };
 
-  /* ========== INITIAL LOAD ========== */
+  /* =========================================================
+     Context-reactive effect
+     ========================================================= */
   useEffect(() => {
-    const init = async () => {
-      setStates(["Maharastra"]);
-      setSelectedState("Maharastra");
-      await fetchCommunicationStatus();
-      await fetchZonesForState("Maharastra");
-      fetchZoneAlarms();
-    };
-    init();
-  }, []);
-
-  // Fill zones from /latest data (fallback)
-  useEffect(() => {
-    if (communicationData.length > 0 && zones.length === 0) {
-      const uniqueZones = [
-        ...new Set(
-          communicationData
-            .map((item) => item.zone)
-            .filter((z) => z && z !== "N/A" && z !== "Unknown" && String(z).trim())
-        ),
-      ];
-      if (uniqueZones.length > 0) {
-        setZones(uniqueZones);
-      }
+    if (!userToken) return;
+    if (selectedArea && selectedDivision && selectedCircle && selectedZone) {
+      fetchDashboardForArea(selectedZone, selectedCircle, selectedDivision, selectedArea);
+    } else if (selectedDivision && selectedCircle && selectedZone) {
+      fetchAllForDivision(selectedZone, selectedCircle, selectedDivision);
+    } else if (selectedCircle && selectedZone) {
+      fetchAllForCircle(selectedZone, selectedCircle);
+    } else if (selectedZone) {
+      fetchAllForZone(selectedZone);
+    } else {
+      fetchAllData();
     }
-  }, [communicationData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedState, selectedZone, selectedCircle, selectedDivision, selectedArea, userToken]);
 
-  // Re-apply filters when pickers change
-  useEffect(() => {
-    applyFiltersAndUpdateUI(communicationData);
-  }, [
-    selectedZone,
-    selectedCircle,
-    selectedDivision,
-    selectedArea,
-    communicationData,
-    applyFiltersAndUpdateUI,
-  ]);
-
+  /* ---------------- Renderers ---------------- */
   const renderCommTableRow = ({ item }) => (
     <View style={styles.tableRow} key={item.key}>
       <Text style={[styles.tableCell, { width: 100 }]}>{item.siteId}</Text>
@@ -1081,13 +846,11 @@ export default function HomeScreen() {
     </TouchableOpacity>
   );
 
-  const getTableHeaderColor = (type) => {
-    if (type === "Communicating") return { backgroundColor: "#4CAF50", color: "#fff" };
-    if (type === "Non-Communicating") return { backgroundColor: "#F44336", color: "#fff" };
+  const getTableHeaderColor = (t) => {
+    if (t === "Communicating") return { backgroundColor: "#4CAF50", color: "#fff" };
+    if (t === "Non-Communicating") return { backgroundColor: "#F44336", color: "#fff" };
     return { backgroundColor: "#4CAF50", color: "#fff" };
   };
-
-  const showClear = selectedZone || selectedCircle || selectedDivision || selectedArea;
 
   const renderCircleStatus = () => (
     <View style={styles.circleStatusContainer}>
@@ -1098,57 +861,48 @@ export default function HomeScreen() {
       <View style={styles.statusGrid}>
         <View style={styles.statusItem}>
           <Text style={styles.statusLabel}>Total Sites</Text>
-          <Text style={styles.statusValue}>{circleStatusData.totalSites}</Text>
+          <Text style={styles.statusValue}>{dashboardSummary.totalSitesCount}</Text>
         </View>
         <View style={[styles.statusItem, styles.statusItemBorder]}>
           <Text style={styles.statusLabel}>Active Alarms</Text>
           <Text style={[styles.statusValue, styles.alarmValue]}>
-            {circleStatusData.activeAlarms}
+            {dashboardSummary.alarmActiveSitesCount}
           </Text>
         </View>
         <View style={styles.statusItem}>
           <Text style={styles.statusLabel}>Uptime</Text>
           <Text style={[styles.statusValue, styles.uptimeValue]}>
-            {circleStatusData.uptime}%
+            {dashboardSummary.upTime}%
           </Text>
         </View>
       </View>
-
-      {/* All 5 metrics in one horizontal row */}
       <View style={styles.metricsGrid}>
         <View style={styles.metricsItem}>
           <Ionicons name="battery-charging" size={20} color="#FF9800" />
           <Text style={styles.metricsLabel}>Boost</Text>
           <Text style={[styles.metricsValue, styles.boostValue]}>
-            {circleStatusData.chargerBoost}
+            {dashboardSummary.boostCount}
           </Text>
         </View>
         <View style={[styles.metricsItem, styles.metricsItemBorder]}>
           <Ionicons name="battery-full" size={20} color="#2196F3" />
           <Text style={styles.metricsLabel}>Float</Text>
           <Text style={[styles.metricsValue, styles.floatValue]}>
-            {circleStatusData.chargerFloat}
-          </Text>
-        </View>
-        <View style={[styles.metricsItem, styles.metricsItemBorder]}>
-          <Ionicons name="warning" size={20} color="#F44336" />
-          <Text style={styles.metricsLabel}>Trip</Text>
-          <Text style={[styles.metricsValue, styles.tripValue]}>
-            {circleStatusData.chargerTrip}
+            {dashboardSummary.floatCount}
           </Text>
         </View>
         <View style={[styles.metricsItem, styles.metricsItemBorder]}>
           <Ionicons name="flash" size={20} color="#9C27B0" />
           <Text style={styles.metricsLabel}>Float deviation</Text>
           <Text style={[styles.metricsValue, styles.floatVoltageValue]}>
-            {circleStatusData.floatVoltage}
+            {dashboardSummary.floatDeviationCount}
           </Text>
         </View>
         <View style={styles.metricsItem}>
           <Ionicons name="thermometer" size={20} color="#E91E63" />
-          <Text style={styles.metricsLabel}>Thermal</Text>
+          <Text style={styles.metricsLabel}>Thermal Runway</Text>
           <Text style={[styles.metricsValue, styles.thermalRunawayValue]}>
-            {circleStatusData.thermalRunaway}
+            {dashboardSummary.thermalRunwayDeviationCount}
           </Text>
         </View>
       </View>
@@ -1162,91 +916,8 @@ export default function HomeScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         showsVerticalScrollIndicator
       >
-        {/* Filters */}
-        <View style={styles.searchContainer}>
-          <View style={styles.pickerRow}>
-            <View style={styles.pickerContainer}>
-              <RNPickerSelect
-                onValueChange={handleStateSelection}
-                items={states.map((s, i) => ({ label: s, value: s, key: `state-${i}` }))}
-                placeholder={{ label: "Select state...", value: null }}
-                style={pickerSelectStyles.dropdown}
-                value={selectedState}
-                useNativeAndroidPickerStyle={false}
-                fixAndroidTouchableBug
-              />
-            </View>
-            <View style={styles.pickerContainer}>
-              <RNPickerSelect
-                onValueChange={handleZoneSelection}
-                items={zones.map((z, i) => ({ label: z, value: z, key: `zone-${i}` }))}
-                placeholder={{ label: "Select zone...", value: null }}
-                style={pickerSelectStyles.dropdown}
-                disabled={!selectedState}
-                value={selectedZone}
-                useNativeAndroidPickerStyle={false}
-                fixAndroidTouchableBug
-              />
-            </View>
-          </View>
-
-          <View style={styles.pickerRow}>
-            <View style={styles.pickerContainer}>
-              <RNPickerSelect
-                onValueChange={handleCircleSelection}
-                items={circles.map((c, i) => ({ label: c, value: c, key: `circle-${i}` }))}
-                placeholder={{ label: "Select circle...", value: null }}
-                style={pickerSelectStyles.dropdown}
-                disabled={!selectedZone}
-                value={selectedCircle}
-                useNativeAndroidPickerStyle={false}
-                fixAndroidTouchableBug
-              />
-            </View>
-            <View style={styles.pickerContainer}>
-              <RNPickerSelect
-                onValueChange={handleDivisionSelection}
-                items={divisions.map((d, i) => ({ label: d, value: d, key: `division-${i}` }))}
-                placeholder={{ label: "Select division...", value: null }}
-                style={pickerSelectStyles.dropdown}
-                disabled={!selectedCircle}
-                value={selectedDivision}
-                useNativeAndroidPickerStyle={false}
-                fixAndroidTouchableBug
-              />
-            </View>
-          </View>
-
-          <View style={styles.pickerRow}>
-            <View style={[styles.pickerContainer, { flex: 1 }]}>
-              <RNPickerSelect
-                onValueChange={handleAreaSelection}
-                items={areas.map((a, i) => ({ label: a, value: a, key: `area-${i}` }))}
-                placeholder={{ label: "Select area...", value: null }}
-                style={pickerSelectStyles.dropdown}
-                disabled={!selectedDivision || areas.length === 0}
-                value={selectedArea}
-                useNativeAndroidPickerStyle={false}
-                fixAndroidTouchableBug
-              />
-            </View>
-
-            {showClear && (
-              <TouchableOpacity style={styles.clearButton} onPress={handleClear} disabled={loading}>
-                {loading ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Ionicons name="close-circle" size={20} color="#fff" />
-                )}
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
-        {/* Status Cards */}
         <View style={styles.dashboardSection}>{renderCircleStatus()}</View>
 
-        {/* Bar Chart */}
         {barChartLoading ? (
           <View style={styles.barChartContainer}>
             <View style={styles.barChartHeader}>
@@ -1265,7 +936,6 @@ export default function HomeScreen() {
           />
         )}
 
-        {/* Pie Chart */}
         <View style={styles.pieChartContainer}>
           <Text style={styles.chartTitle}>Device Communication Status</Text>
           {pieChartData.length > 0 ? (
@@ -1274,9 +944,7 @@ export default function HomeScreen() {
                 data={pieChartData}
                 width={screenWidth - 40}
                 height={100}
-                chartConfig={{
-                  color: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-                }}
+                chartConfig={{ color: (o = 1) => `rgba(0,0,0,${o})` }}
                 accessor="count"
                 backgroundColor="transparent"
                 paddingLeft="5"
@@ -1288,13 +956,17 @@ export default function HomeScreen() {
                   style={styles.detailsButton}
                   onPress={() => handleCommPieChartClick("Communicating")}
                 >
-                  <Text style={styles.detailsButtonText}>View Communicating Devices</Text>
+                  <Text style={styles.detailsButtonText}>
+                    View Communicating Devices
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.detailsButton, styles.nonCommButton]}
                   onPress={() => handleCommPieChartClick("Non-Communicating")}
                 >
-                  <Text style={styles.detailsButtonText}>View Non-Communicating</Text>
+                  <Text style={styles.detailsButtonText}>
+                    View Non-Communicating
+                  </Text>
                 </TouchableOpacity>
               </View>
             </>
@@ -1305,17 +977,9 @@ export default function HomeScreen() {
             </View>
           )}
         </View>
-
-        {/* Map */}
-        {/* <View style={styles.mapContainer}>
-          <Text style={styles.mapTitle}>
-            {selectedState ? `State: ${selectedState}` : "All Sites"} ({markers.length} sites)
-          </Text>
-          <LeafletMapView markers={markers} />
-        </View> */}
       </ScrollView>
 
-      {/* Communication Modal */}
+      {/* Modal 1 — Comm devices */}
       <Modal
         animationType="slide"
         transparent
@@ -1333,28 +997,13 @@ export default function HomeScreen() {
                     backgroundColor: getTableHeaderColor(selectedCommStatus).backgroundColor,
                   }}
                 >
-                  <Text
-                    style={[
-                      styles.tableHeaderCell,
-                      { width: 100, color: getTableHeaderColor(selectedCommStatus).color },
-                    ]}
-                  >
+                  <Text style={[styles.tableHeaderCell, { width: 100, color: getTableHeaderColor(selectedCommStatus).color }]}>
                     Site ID
                   </Text>
-                  <Text
-                    style={[
-                      styles.tableHeaderCell,
-                      { width: 120, color: getTableHeaderColor(selectedCommStatus).color },
-                    ]}
-                  >
+                  <Text style={[styles.tableHeaderCell, { width: 120, color: getTableHeaderColor(selectedCommStatus).color }]}>
                     Serial Number
                   </Text>
-                  <Text
-                    style={[
-                      styles.tableHeaderCell,
-                      { width: 100, color: getTableHeaderColor(selectedCommStatus).color },
-                    ]}
-                  >
+                  <Text style={[styles.tableHeaderCell, { width: 100, color: getTableHeaderColor(selectedCommStatus).color }]}>
                     Area
                   </Text>
                 </View>
@@ -1362,9 +1011,7 @@ export default function HomeScreen() {
                   data={commTableData}
                   renderItem={renderCommTableRow}
                   keyExtractor={(it) => it.key}
-                  ListEmptyComponent={
-                    <Text style={styles.noResultsText}>No devices found</Text>
-                  }
+                  ListEmptyComponent={<Text style={styles.noResultsText}>No devices found</Text>}
                 />
               </View>
             </ScrollView>
@@ -1375,7 +1022,7 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      {/* Detail Modal */}
+      {/* Modal 2 — Detail drilldown */}
       <Modal
         animationType="slide"
         transparent
@@ -1386,9 +1033,10 @@ export default function HomeScreen() {
           <View style={styles.modalContent}>
             <View style={styles.detailModalHeader}>
               <Text style={styles.modalTitle}>{detailModalTitle}</Text>
-              <Text style={styles.detailLevelBadge}>{detailCurrentLevel || "Details"}</Text>
+              <Text style={styles.detailLevelBadge}>
+                {detailCurrentLevel || "Details"}
+              </Text>
             </View>
-
             {detailLoading ? (
               <View style={{ paddingVertical: 40, alignItems: "center" }}>
                 <ActivityIndicator size="large" color="#F44336" />
@@ -1403,19 +1051,15 @@ export default function HomeScreen() {
                   </Text>
                   <Text style={[styles.detailHeaderCell, { width: 30 }]} />
                 </View>
-
                 <FlatList
                   data={detailTableData}
                   renderItem={renderDetailTableRow}
                   keyExtractor={(item) => item.key}
                   style={{ maxHeight: 350 }}
-                  ListEmptyComponent={
-                    <Text style={styles.noResultsText}>No data found</Text>
-                  }
+                  ListEmptyComponent={<Text style={styles.noResultsText}>No data found</Text>}
                 />
               </>
             )}
-
             <TouchableOpacity
               style={[styles.closeButton, { backgroundColor: "#F44336" }]}
               onPress={() => setDetailModalVisible(false)}
@@ -1433,32 +1077,6 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f5f5f5" },
   scrollContent: { paddingBottom: 15, paddingHorizontal: 8 },
-  searchContainer: {
-    marginTop: 8,
-    padding: 8,
-    backgroundColor: "#fff",
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    elevation: 1,
-  },
-  pickerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 6,
-    justifyContent: "space-between",
-  },
-  pickerContainer: { flex: 1, marginRight: 6, height: 32 },
-  clearButton: {
-    backgroundColor: "#f44336",
-    padding: 6,
-    borderRadius: 4,
-    justifyContent: "center",
-    alignItems: "center",
-    width: 32,
-    height: 32,
-    marginLeft: 6,
-  },
   dashboardSection: { marginVertical: 6 },
   circleStatusContainer: {
     backgroundColor: "#fff",
@@ -1478,7 +1096,6 @@ const styles = StyleSheet.create({
   statusValue: { fontSize: 18, fontWeight: "bold", color: "#333" },
   alarmValue: { color: "#F44336" },
   uptimeValue: { color: "#4CAF50" },
-
   metricsGrid: {
     flexDirection: "row",
     justifyContent: "space-around",
@@ -1487,33 +1104,14 @@ const styles = StyleSheet.create({
     borderTopColor: "#e0e0e0",
     marginTop: 4,
   },
-  metricsItem: { 
-    alignItems: "center", 
-    flex: 1, 
-    paddingHorizontal: 2,
-  },
-  metricsItemBorder: { 
-    borderLeftWidth: 1, 
-    borderRightWidth: 1, 
-    borderColor: "#e0e0e0" 
-  },
-  metricsLabel: { 
-    fontSize: 8, 
-    color: "#666", 
-    marginTop: 2, 
-    textAlign: "center" 
-  },
-  metricsValue: { 
-    fontSize: 14, 
-    fontWeight: "bold", 
-    marginTop: 2 
-  },
+  metricsItem: { alignItems: "center", flex: 1, paddingHorizontal: 2 },
+  metricsItemBorder: { borderLeftWidth: 1, borderRightWidth: 1, borderColor: "#e0e0e0" },
+  metricsLabel: { fontSize: 8, color: "#666", marginTop: 2, textAlign: "center" },
+  metricsValue: { fontSize: 14, fontWeight: "bold", marginTop: 2 },
   boostValue: { color: "#FF9800" },
   floatValue: { color: "#2196F3" },
-  tripValue: { color: "#F44336" },
   floatVoltageValue: { color: "#9C27B0" },
   thermalRunawayValue: { color: "#E91E63" },
-
   barChartContainer: {
     backgroundColor: "#fff",
     padding: 10,
@@ -1558,7 +1156,6 @@ const styles = StyleSheet.create({
   shinyValue: { position: "absolute", left: 6, fontSize: 10, fontWeight: "700", color: "#fff" },
   noDataContainer: { height: 100, justifyContent: "center", alignItems: "center" },
   noDataText: { marginTop: 6, fontSize: 12, color: "#666" },
-
   pieChartContainer: {
     backgroundColor: "#fff",
     padding: 10,
@@ -1569,19 +1166,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 6,
   },
-  chartTitle: {
-    fontSize: 14,
-    fontWeight: "bold",
-    marginBottom: 6,
-    textAlign: "center",
-    color: "#333",
-  },
-  dataContainer: {
-    marginTop: 6,
-    width: "100%",
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
+  chartTitle: { fontSize: 14, fontWeight: "bold", marginBottom: 6, textAlign: "center", color: "#333" },
+  dataContainer: { marginTop: 6, width: "100%", flexDirection: "row", justifyContent: "space-between" },
   detailsButton: {
     backgroundColor: "#4CAF50",
     paddingVertical: 6,
@@ -1592,36 +1178,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   nonCommButton: { backgroundColor: "#f44336" },
-  detailsButtonText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 10,
-    textAlign: "center",
-  },
-
-  mapContainer: {
-    width: "100%",
-    height: 300,
-    borderRadius: 8,
-    overflow: "hidden",
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#ddd",
-    elevation: 1,
-    marginBottom: 6,
-  },
-  mapTitle: {
-    fontSize: 12,
-    fontWeight: "bold",
-    textAlign: "center",
-    padding: 8,
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e0e0e0",
-    color: "#333",
-  },
+  detailsButtonText: { color: "#fff", fontWeight: "bold", fontSize: 10, textAlign: "center" },
   map: { width: "100%", height: "100%" },
-
   modalOverlay: {
     flex: 1,
     justifyContent: "center",
@@ -1635,13 +1193,7 @@ const styles = StyleSheet.create({
     padding: 15,
     maxHeight: "80%",
   },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    marginBottom: 12,
-    textAlign: "center",
-    color: "#333",
-  },
+  modalTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 12, textAlign: "center", color: "#333" },
   detailModalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1670,12 +1222,7 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     borderColor: "#fff",
   },
-  tableRow: {
-    flexDirection: "row",
-    borderBottomWidth: 1,
-    borderColor: "#e0e0e0",
-    paddingVertical: 8,
-  },
+  tableRow: { flexDirection: "row", borderBottomWidth: 1, borderColor: "#e0e0e0", paddingVertical: 8 },
   tableCell: {
     fontSize: 13,
     textAlign: "center",
@@ -1693,7 +1240,6 @@ const styles = StyleSheet.create({
   },
   closeButtonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
   noResultsText: { padding: 20, fontSize: 14, color: "#666", textAlign: "center" },
-
   detailTableHeader: {
     flexDirection: "row",
     backgroundColor: "#F44336",
@@ -1714,34 +1260,3 @@ const styles = StyleSheet.create({
   },
   detailTableCell: { fontSize: 13, color: "#333" },
 });
-
-const pickerSelectStyles = {
-  dropdown: {
-    inputIOS: {
-      paddingVertical: 4,
-      paddingHorizontal: 8,
-      backgroundColor: "#f9f9f9",
-      borderRadius: 4,
-      borderWidth: 1,
-      borderColor: "#4CAF50",
-      fontSize: 11,
-      color: "#333",
-      height: 32,
-      width: "100%",
-      textAlign: "left",
-    },
-    inputAndroid: {
-      paddingVertical: 4,
-      paddingHorizontal: 8,
-      backgroundColor: "#f9f9f9",
-      borderRadius: 4,
-      borderWidth: 1,
-      borderColor: "#4CAF50",
-      fontSize: 11,
-      color: "#333",
-      height: 32,
-      width: "100%",
-      textAlign: "left",
-    },
-  },
-};
