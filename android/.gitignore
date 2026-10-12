@@ -1,12 +1,19 @@
 # OSX
-#
 .DS_Store
 
-# Android/IntelliJ
-#
+# Dependencies
+node_modules/
+
+# Expo
+.expo/
+
+# Android / IntelliJ
+.idea/
+.gradle/
 build/
-.idea
-.gradle
+android/.gradle/
+android/app/build/
+android/build/
 local.properties
 *.iml
 *.hprof
@@ -14,6 +21,13 @@ local.properties
 
 # Bundle artifacts
 *.jsbundle
-# Android build files
-*app-release.apk
-*my-app.apks
+
+# Android APK and App Bundle files
+*.apk
+*.aab
+*.apks
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
